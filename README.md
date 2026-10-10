@@ -97,5 +97,6 @@ ccs32dave.
 
 ## Licence
 
-Planned: **GPL-3.0**, because the project reuses code from ccs32dave and pyPLC (both GPL-3.0).
-The OpenV2G EXI codec in `src/exi/` keeps its own licence (LGPL-3.0, see its file headers).
+**GPL-3.0**, see [LICENSE](LICENSE). The project reuses code from ccs32dave and pyPLC (both
+GPL-3.0). The OpenV2G EXI codec in `src/exi/` keeps its own licence (LGPL-3.0, see its file
+headers).

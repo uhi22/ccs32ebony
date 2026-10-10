@@ -63,7 +63,7 @@ Planned work, roughly in order. Check an item off with a one-line result; do not
   plan OTA around it.
 - [ ] Mock box: replay a recorded session for UI development without hardware.
 - [ ] Field test with a real car and charger (so far: bench sessions with pyPLC only).
-- [ ] Licence file: add `LICENSE` (GPL-3.0) before publishing; `src/exi/` stays under its own
+- [x] Licence file: `LICENSE` (GPL-3.0, text as in ccs32dave); `src/exi/` stays under its own
   LGPL-3.0 headers (OpenV2G).
 
 ## Later / ideas
