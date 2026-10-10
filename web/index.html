@@ -1,0 +1,1199 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#101418">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>ccs32ebony</title>
+<style>
+:root {
+  color-scheme: light;
+  --bg: #f4f6f8; --surface: #fcfcfb; --surface-2: #eef1f4; --border: #d8dde3;
+  --text: #15191e; --muted: #5f6b78; --accent: #2a78d6;
+  --grid: #e1e0d9; --axis: #c3c2b7;
+  --s1: #2a78d6; --s2: #eb6834;
+  /* One hue per measurement (line/mark colour + a readable text shade); targets are always --s2 */
+  --c-u: #2a78d6; --c-u-ink: #1c5cab;
+  --c-i: #1baf7a; --c-i-ink: #0b7d55;
+  --c-p: #6250d6; --c-p-ink: #4a3aa7;
+  --c-soc: #008300; --c-soc-ink: #006300;
+  --good: #0ca30c; --warn: #fab219; --bad: #d03b3b; --idle: #8a96a3;
+  --radius: 14px; --gap: 16px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #0d0d0d; --surface: #1a1a19; --surface-2: #242423; --border: #2f2f2d;
+    --text: #f0efec; --muted: #a9a89f; --accent: #3987e5;
+    --grid: #2c2c2a; --axis: #383835;
+    --s1: #3987e5; --s2: #d95926;
+    --c-u: #3987e5; --c-u-ink: #6da7ec;
+    --c-i: #199e70; --c-i-ink: #3cc795;
+    --c-p: #9085e9; --c-p-ink: #a99ff0;
+    --c-soc: #0ca30c; --c-soc-ink: #3fb950;
+    --idle: #6b7783;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0d0d0d; --surface: #1a1a19; --surface-2: #242423; --border: #2f2f2d;
+  --text: #f0efec; --muted: #a9a89f; --accent: #3987e5;
+  --grid: #2c2c2a; --axis: #383835;
+  --s1: #3987e5; --s2: #d95926;
+  --c-u: #3987e5; --c-u-ink: #6da7ec;
+  --c-i: #199e70; --c-i-ink: #3cc795;
+  --c-p: #9085e9; --c-p-ink: #a99ff0;
+  --c-soc: #0ca30c; --c-soc-ink: #3fb950;
+  --idle: #6b7783;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }  /* must beat component display rules (e.g. .chip) */
+html, body { margin: 0; background: var(--bg); color: var(--text);
+  font: 16px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+body { padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
+button { font: inherit; color: inherit; }
+
+/* Status bar and tabs */
+.top { position: sticky; top: 0; z-index: 2; background: var(--surface); border-bottom: 1px solid var(--border); }
+.bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; padding: 10px 16px 6px; }
+.brand { font-weight: 700; margin-right: auto; }
+.chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px;
+  background: var(--surface-2); color: var(--muted); font-size: 14px; white-space: nowrap; }
+.chip::before { content: ""; width: 9px; height: 9px; border-radius: 50%; background: var(--idle); }
+.chip.ok, .chip.warn, .chip.bad, .chip.run { color: var(--text); }
+.chip.ok::before { background: var(--good); } .chip.warn::before { background: var(--warn); }
+.chip.bad::before { background: var(--bad); } .chip.run::before { background: var(--accent); }
+.chip.tls { background: var(--bad); color: #fff; } .chip.tls::before { display: none; }
+.icon-btn { border: 1px solid var(--border); background: var(--surface-2); border-radius: 999px;
+  padding: 4px 10px; font-size: 14px; cursor: pointer; }
+nav { display: flex; gap: 4px; padding: 0 12px; overflow-x: auto; scrollbar-width: none; }
+nav button { border: 0; background: none; padding: 10px 14px; color: var(--muted); cursor: pointer;
+  border-bottom: 3px solid transparent; white-space: nowrap; font-weight: 600; }
+nav button.on { color: var(--text); border-bottom-color: var(--accent); }
+
+/* Layout */
+main { padding: var(--gap); max-width: 1280px; margin: 0 auto; }
+.tab { display: none; } .tab.on { display: block; }
+.grid { display: grid; gap: var(--gap); grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 16px; min-width: 0; }
+.card + .card, .grid + .card, .card + .grid { margin-top: var(--gap); }
+.card h2 { margin: 0 0 12px; font-size: 13px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.wide { grid-column: 1 / -1; }
+.muted { color: var(--muted); }
+.mono { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 14px; }
+dl { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; margin: 0; }
+dt { color: var(--muted); }
+dd { margin: 0; overflow-wrap: anywhere; }
+table { border-collapse: collapse; width: 100%; font-size: 15px; }
+th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); vertical-align: top; }
+th { color: var(--muted); font-weight: 600; font-size: 13px; }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+.banner { display: none; margin: var(--gap) var(--gap) 0; padding: 12px 16px; border-radius: 10px;
+  background: var(--surface); border: 1px solid var(--bad); }
+.banner.show { display: block; }
+.stale { opacity: .45; transition: opacity .3s; }
+
+/* Live */
+.tiles { display: grid; gap: var(--gap); grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
+.tile { --c: var(--accent); --ink: var(--text);
+  background: var(--surface);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--c) 14%, var(--surface)), var(--surface) 75%);
+  border: 1px solid var(--border); border-top: 4px solid var(--c); border-radius: var(--radius); padding: 16px; }
+#t-present { --c: var(--c-u); }
+#t-target { --c: var(--s2); }
+#t-p { --c: var(--c-p); --ink: var(--c-p-ink); }
+#t-soc { --c: var(--c-soc); --ink: var(--c-soc-ink); }
+.tile .l { color: var(--muted); font-size: 14px; font-weight: 600; }
+.tile .l::before { content: ""; display: inline-block; width: 10px; height: 10px; border-radius: 50%;
+  background: var(--c); margin-right: 8px; }
+.tile .v { font-size: 52px; font-weight: 650; line-height: 1.1; margin-top: 4px; color: var(--ink); }
+.tile .u { font-size: 20px; color: var(--muted); font-weight: 500; margin-left: 4px; }
+.tile .s { color: var(--muted); font-size: 15px; margin-top: 4px; min-height: 1.4em; }
+.tile.old .v, .m.old .v { opacity: .4; }
+/* Present / Target: voltage and current side by side, same size, in their measurement colours */
+.pair { display: flex; flex-wrap: wrap; gap: 4px 28px; }
+.m .v { color: var(--mink); }
+.m.mu { --mink: var(--c-u-ink); --mc: var(--c-u); }
+.m.mi { --mink: var(--c-i-ink); --mc: var(--c-i); }
+.m .cap { color: var(--muted); font-size: 14px; }
+.m .cap::before { content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+  background: var(--mc); margin-right: 6px; }
+@media (min-width: 700px) { .tile-pair { grid-column: span 2; } }
+.soc { display: flex; align-items: center; gap: 16px; }
+.soc svg { width: 84px; height: 84px; flex: none; }
+.phases { display: flex; flex-wrap: wrap; gap: 8px; }
+.ph { padding: 6px 12px; border-radius: 999px; background: var(--surface-2); color: var(--muted); font-size: 15px; }
+.ph.done { color: var(--text); } .ph.done::before { content: "✓ "; color: var(--good); font-weight: 700; }
+.ph.run { color: #fff; background: var(--accent); } .ph.run::before { content: "● "; }
+.ph.stop { color: var(--text); outline: 2px solid var(--bad); } .ph.stop::before { content: "✕ "; color: var(--bad); font-weight: 700; }
+.ph .phd { margin-left: 8px; font-size: 13px; opacity: .8; font-variant-numeric: tabular-nums; }
+.lastmsg { margin-top: 12px; font-size: 18px; }
+
+/* Charts */
+.filters { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: var(--gap); }
+.seg { display: inline-flex; border: 1px solid var(--border); border-radius: 999px; overflow: hidden; }
+.seg button { border: 0; background: var(--surface); padding: 6px 14px; cursor: pointer; }
+.seg button.on { background: var(--accent); color: #fff; }
+.panel { position: relative; }
+.panel + .panel { margin-top: 8px; }
+.phead { display: flex; flex-wrap: wrap; gap: 4px 16px; align-items: baseline; font-size: 14px; }
+.phead .t { font-weight: 600; color: var(--muted); min-width: 90px; }
+.key { display: inline-flex; align-items: baseline; gap: 6px; }
+.key i { display: inline-block; width: 14px; height: 2px; border-radius: 1px; transform: translateY(-4px); }
+.key b { font-size: 17px; font-variant-numeric: tabular-nums; }
+canvas.chart { display: block; width: 100%; height: 150px; touch-action: pan-y; }
+canvas.mini { height: 120px; }
+.xlabel { font-size: 13px; color: var(--muted); text-align: right; }
+
+/* Session */
+.tl-row { display: grid; grid-template-columns: 120px 1fr 120px; gap: 10px; align-items: center; padding: 4px 0; }
+.tl-track { position: relative; height: 18px; background: var(--surface-2); border-radius: 4px; }
+.tl-bar { position: absolute; top: 3px; height: 12px; border-radius: 4px; background: var(--s1); min-width: 4px; }
+.tl-row .d { font-size: 14px; color: var(--muted); text-align: right; font-variant-numeric: tabular-nums; }
+.ladder { width: 100%; }
+.ladder td { padding: 6px 4px; }
+.ladder .car { text-align: left; } .ladder .chg { text-align: right; }
+.ladder .mid { text-align: center; color: var(--muted); font-size: 14px; }
+.ladder tr { cursor: pointer; }
+.ladder tr.sel td { background: var(--surface-2); }
+.arrow { font-weight: 700; }
+pre.detail { white-space: pre-wrap; margin: 0; }
+
+/* Details */
+.masked { filter: blur(6px); cursor: pointer; user-select: none; }
+.cols2 { display: grid; grid-template-columns: 1fr 1fr; gap: var(--gap); }
+
+/* Log */
+.log { max-height: 65vh; overflow-y: auto; }
+.log table td { padding: 4px 8px; font-size: 14px; }
+.log .err td { color: var(--bad); }
+.jump { display: none; } .jump.show { display: inline-block; }
+input[type=search] { font: inherit; padding: 6px 10px; border-radius: 999px; border: 1px solid var(--border);
+  background: var(--surface); color: var(--text); min-width: 160px; }
+
+@media (max-width: 600px) {
+  .tile .v { font-size: 40px; }
+  .tl-row { grid-template-columns: 90px 1fr 80px; }
+  .cols2 { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+<div class="top">
+  <header class="bar">
+    <span class="brand">ccs32ebony</span>
+    <span class="chip" id="c-ws">Box</span>
+    <span class="chip" id="c-modem">Modem</span>
+    <span class="chip" id="c-net">Session network</span>
+    <span class="chip" id="c-phase">No session</span>
+    <span class="chip tls" id="c-tls" hidden>TLS – not decodable</span>
+    <button class="icon-btn" id="theme" title="Switch light/dark">◐</button>
+  </header>
+  <nav id="tabs">
+    <button data-tab="live" class="on">Live</button>
+    <button data-tab="chart">Chart</button>
+    <button data-tab="session">Session</button>
+    <button data-tab="details">Details</button>
+    <button data-tab="network">Network</button>
+    <button data-tab="log">Log</button>
+  </nav>
+</div>
+<div class="banner" id="banner"></div>
+
+<main id="main">
+  <!-- Live -->
+  <section class="tab on" id="tab-live">
+    <div class="tiles">
+      <div class="tile tile-pair" id="t-present"><div class="l">Present (charger)</div>
+        <div class="pair">
+          <div class="m mu" id="m-pu"><span class="v">–</span><span class="u">V</span><div class="cap">voltage</div></div>
+          <div class="m mi" id="m-pi"><span class="v">–</span><span class="u">A</span><div class="cap">current</div></div>
+        </div>
+        <div class="s"></div></div>
+      <div class="tile tile-pair" id="t-target"><div class="l">Target (car)</div>
+        <div class="pair">
+          <div class="m mu" id="m-tu"><span class="v">–</span><span class="u">V</span><div class="cap">voltage</div></div>
+          <div class="m mi" id="m-ti"><span class="v">–</span><span class="u">A</span><div class="cap">current</div></div>
+        </div>
+        <div class="s"></div></div>
+      <div class="tile" id="t-p"><div class="l">Power</div><div><span class="v">–</span><span class="u">kW</span></div><div class="s"></div></div>
+      <div class="tile" id="t-soc"><div class="l">State of charge</div>
+        <div class="soc">
+          <svg viewBox="0 0 84 84" aria-hidden="true">
+            <circle cx="42" cy="42" r="36" fill="none" stroke="var(--surface-2)" stroke-width="8"/>
+            <circle id="soc-arc" cx="42" cy="42" r="36" fill="none" stroke="var(--c-soc)" stroke-width="8"
+              stroke-linecap="round" stroke-dasharray="0 999" transform="rotate(-90 42 42)"/>
+          </svg>
+          <div><span class="v">–</span><span class="u">%</span></div>
+        </div>
+        <div class="s"></div>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Phase</h2>
+      <div class="phases" id="live-phases"></div>
+      <div class="lastmsg" id="live-last"><span class="muted">Waiting for a charging session…</span></div>
+    </div>
+    <div class="card">
+      <h2>Last 2 minutes</h2>
+      <div class="panel" data-chart="mini-u"></div>
+      <div class="panel" data-chart="mini-i"></div>
+      <div class="xlabel">time since session start (min:s)</div>
+    </div>
+  </section>
+
+  <!-- Chart -->
+  <section class="tab" id="tab-chart">
+    <div class="filters">
+      <div class="seg" id="range">
+        <button data-r="0" class="on">Whole session</button><button data-r="600">10 min</button><button data-r="120">2 min</button>
+      </div>
+      <button class="icon-btn" id="tbl-btn">Show table</button>
+    </div>
+    <div class="card">
+      <div class="panel" data-chart="u"></div>
+      <div class="panel" data-chart="i"></div>
+      <div class="panel" data-chart="p"></div>
+      <div class="panel" data-chart="soc"></div>
+      <div class="xlabel">time since session start (min:s) – drag or tap a chart to read values</div>
+    </div>
+    <div class="card" id="tbl-card" hidden>
+      <h2>Values, one row per 5 s</h2>
+      <div style="overflow-x:auto"><table id="tbl"></table></div>
+    </div>
+  </section>
+
+  <!-- Session -->
+  <section class="tab" id="tab-session">
+    <div class="card"><h2>Timeline</h2><div id="timeline"></div></div>
+    <div class="grid" style="margin-top:var(--gap)">
+      <div class="card">
+        <h2>Message ladder</h2>
+        <table class="ladder"><thead><tr><th>Car</th><th class="mid">time</th><th class="chg" style="text-align:right">Charger</th></tr></thead>
+          <tbody id="ladder"></tbody></table>
+        <p class="muted" id="ladder-note"></p>
+      </div>
+      <div class="card"><h2>Selected message</h2><pre class="detail mono" id="detail"><span class="muted">Tap a row in the ladder.</span></pre></div>
+    </div>
+  </section>
+
+  <!-- Details -->
+  <section class="tab" id="tab-details">
+    <div class="grid">
+      <div class="card"><h2>Service discovery (SDP)</h2><dl id="d-sdp"></dl></div>
+      <div class="card"><h2>Protocol handshake</h2><div id="d-hs"></div></div>
+      <div class="card wide"><h2>Charge parameter discovery</h2><div id="d-cpd"></div></div>
+      <div class="card"><h2>Energy</h2><dl id="d-energy"></dl></div>
+      <div class="card"><h2>Identity and keys</h2><dl id="d-ident"></dl>
+        <p class="muted" style="margin-bottom:0">Tap a blurred value to reveal it.</p></div>
+    </div>
+  </section>
+
+  <!-- Network -->
+  <section class="tab" id="tab-network">
+    <div class="grid">
+      <div class="card"><h2>Frames from the sniffer</h2><table id="n-frames"></table></div>
+      <div class="card"><h2>Local modem</h2><dl id="n-modem"></dl></div>
+      <div class="card"><h2>Box</h2><dl id="n-box"></dl></div>
+      <div class="card wide"><h2>SLAC attenuation per carrier group</h2>
+        <div class="panel" data-chart="atten"></div><p class="muted" id="atten-note" style="margin-bottom:0"></p></div>
+    </div>
+  </section>
+
+  <!-- Log -->
+  <section class="tab" id="tab-log">
+    <div class="filters">
+      <div class="seg" id="logf">
+        <button data-f="all" class="on">All</button><button data-f="slac">SLAC</button><button data-f="sdp">SDP</button>
+        <button data-f="v2g">V2G</button><button data-f="err">Errors</button>
+      </div>
+      <input type="search" id="logq" placeholder="Search">
+      <button class="icon-btn jump" id="jump">Jump to latest</button>
+      <span style="margin-left:auto"></span>
+      <label class="muted"><input type="checkbox" id="exp-id"> include identifiers</label>
+      <button class="icon-btn" id="exp-json">Export JSON</button>
+      <button class="icon-btn" id="exp-csv">Export CSV</button>
+    </div>
+    <div class="card log" id="logbox"><table><tbody id="log"></tbody></table></div>
+  </section>
+</main>
+
+<script>
+"use strict";
+const PROTO = 1;
+const $ = (id) => document.getElementById(id);
+
+// Show script errors on the page: the tablet has no console
+window.addEventListener("error", (e) => {
+  $("banner").className = "banner show";
+  $("banner").textContent = "Page error: " + e.message + " (line " + e.lineno + ")";
+});
+
+// ---- Small helpers ---------------------------------------------------------------------------
+function el(tag, cls, text) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text !== undefined && text !== null) e.textContent = text;
+  return e;
+}
+function clear(e) { while (e.firstChild) e.removeChild(e.firstChild); return e; }
+function chip(id, cls, text) { const e = $(id); e.className = "chip " + (cls || ""); e.textContent = text; }
+function css(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
+function fmt(v, d) { return v === undefined || v === null || isNaN(v) ? "–" : Number(v).toFixed(d); }
+// m:ss with a decimal fraction of the second, e.g. 1:23.45 (digits 2) - the box stamps each
+// message to the millisecond, and a request and its response are often only 30-40 ms apart
+function mmssFrac(ms, digits) {
+  const neg = ms < 0; ms = Math.abs(ms);
+  const f = Math.pow(10, digits), t = Math.round(ms / 1000 * f) / f;
+  const m = Math.floor(t / 60), sec = (t - m * 60).toFixed(digits);
+  return (neg ? "-" : "") + m + ":" + sec.padStart(digits + 3, "0");
+}
+function mmss(ms) {
+  const neg = ms < 0; ms = Math.abs(ms);
+  const s = Math.floor(ms / 1000), m = Math.floor(s / 60);
+  return (neg ? "-" : "") + m + ":" + String(s % 60).padStart(2, "0");
+}
+function dur(ms) {
+  const s = Math.round(ms / 1000);
+  if (s < 60) return s + " s";
+  const m = Math.floor(s / 60);
+  return m < 60 ? m + " min " + (s % 60) + " s" : Math.floor(m / 60) + " h " + (m % 60) + " min";
+}
+function dl(target, rows) {
+  clear(target);
+  for (const [k, v, cls] of rows) {
+    target.appendChild(el("dt", "", k));
+    const d = el("dd", cls || "", v === undefined || v === null || v === "" ? "–" : String(v));
+    if (cls && cls.indexOf("masked") >= 0) d.onclick = () => d.classList.toggle("masked");
+    target.appendChild(d);
+  }
+}
+
+const RC = ["OK", "OK, new session", "OK, old session joined", "OK, certificate expires soon", "FAILED",
+  "FAILED: sequence error", "FAILED: service ID invalid", "FAILED: unknown session", "FAILED: service selection invalid",
+  "FAILED: payment selection invalid", "FAILED: certificate expired", "FAILED: signature error",
+  "FAILED: no certificate", "FAILED: cert chain error", "FAILED: challenge invalid", "FAILED: contract canceled",
+  "FAILED: wrong charge parameter", "FAILED: power delivery not applied", "FAILED: tariff selection invalid",
+  "FAILED: charging profile invalid", "FAILED: EVSE present voltage too low", "FAILED: metering signature",
+  "FAILED: wrong energy transfer type"];
+const rcName = (rc) => (rc === undefined ? "" : RC[rc] || "code " + rc);
+const MODES = ["AC single phase", "AC three phase", "DC core", "DC extended", "DC combo core", "DC unique"];
+const HS = ["OK", "OK, minor deviation", "failed"];
+
+// ---- Theme -----------------------------------------------------------------------------------
+(function () {
+  try { const t = localStorage.getItem("theme"); if (t) document.documentElement.dataset.theme = t; } catch (e) {}
+  $("theme").onclick = () => {
+    const cur = document.documentElement.dataset.theme;
+    const dark = cur ? cur === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
+    document.documentElement.dataset.theme = dark ? "light" : "dark";
+    try { localStorage.setItem("theme", document.documentElement.dataset.theme); } catch (e) {}
+    redrawAll();
+  };
+})();
+
+// ---- State -----------------------------------------------------------------------------------
+// The box sends a "session" snapshot every second (the truth for tiles, phases, details) and
+// every decoded message as "msg"/"event" (the history for charts, ladder, log).
+const S = {
+  hello: null, status: null, session: null,
+  offset: 0,            // Date.now() - box ms
+  sessionId: 0, items: [], samples: [],
+  live: false,          // the replay after (re)connecting is complete
+};
+
+// Index of the first sample at or after ms (samples are in time order)
+function firstSample(ms) {
+  let lo = 0, hi = S.samples.length;
+  while (lo < hi) { const mid = (lo + hi) >> 1; if (S.samples[mid].ms < ms) lo = mid + 1; else hi = mid; }
+  return lo;
+}
+const boxNow = () => Date.now() - S.offset;
+const sessStart = () => (S.session && S.session.start) || (S.items.length ? S.items[0].ms : boxNow());
+
+// A new session; items from keepFromMs on (its SLAC run, which precedes the match that opens
+// the session on the box) move over from the previous session's list
+function resetSession(id, keepFromMs) {
+  const keep = keepFromMs ? S.items.filter((it) => it.ms >= keepFromMs) : [];
+  S.sessionId = id; S.items = keep; S.samples = []; selected = -1;
+}
+const slacStartOf = (session) => (session && session.phases && session.phases[0].start) || 0;
+
+// One sample per V2G message carrying values. Power only where present U and I come together.
+function addSample(m) {
+  const s = { ms: m.ms };
+  let any = false;
+  for (const k of ["tU", "tI", "pU", "pI", "soc"]) if (m[k] !== undefined) { s[k] = m[k]; any = true; }
+  if (s.pU !== undefined && s.pI !== undefined) s.p = s.pU * s.pI / 1000;
+  if (any) S.samples.push(s);
+}
+
+// The snapshot comes once per second; a decoded message updates the live values at once.
+// Only newer values win, so the replay after connecting cannot overwrite the snapshot.
+function applyLive(m) {
+  const L = S.session && S.session.live;
+  if (!L) return;
+  for (const k of ["tU", "tI", "pU", "pI", "soc"]) {
+    if (m[k] !== undefined && m.ms >= (L[k + "Ms"] || 0)) { L[k] = m[k]; L[k + "Ms"] = m.ms; }
+  }
+  if (m.ms >= (L.msgMs || 0)) {
+    L.msg = m.name; L.msgMs = m.ms;
+    if (m.rc !== undefined) L.rc = m.rc; else delete L.rc;
+  }
+}
+
+// Phases, as the box derives them (session.cpp), so the phase strip follows each message at once
+const PHASES = ["SLAC", "join", "SDP", "handshake", "setup", "CableCheck", "PreCharge", "CurrentDemand", "stop"];
+function phaseOf(name, phases) {
+  if (/^SupportedAppProtocol/.test(name)) return 3;
+  if (/^CableCheck/.test(name)) return 5;
+  if (/^PreCharge/.test(name)) return 6;
+  if (/^CurrentDemand/.test(name)) return 7;
+  if (/^PowerDelivery/.test(name)) return phases[7].start ? 8 : 6;  // before charging it starts it
+  if (/^(SessionStop|WeldingDetection)/.test(name)) return 8;
+  return 4;
+}
+function applyPhase(ph, ms) {
+  const s = S.session;
+  if (!s || !s.phases) return;
+  const latest = Math.max(...s.phases.map((p) => p.end));
+  const p = s.phases[ph];
+  if (!p.start) p.start = ms;
+  if (ms > p.end) p.end = ms;
+  if (ms >= latest) s.current = ph;  // an older (replayed) message never moves the phase back
+}
+// A new session shows up at once, before its first snapshot
+function newSessionSkeleton(m) {
+  const phases = PHASES.map((name) => ({ name, start: 0, end: 0 }));
+  if (!m.late) phases[0] = { name: "SLAC", start: m.slac || m.ms, end: m.ms };
+  S.session = { t: "session", id: m.id, start: m.ms, late: m.late, phases, current: m.late ? -1 : 0,
+    live: {}, sdp: {}, hs: { offered: [] }, cpd: {}, ident: {}, energy: {} };
+  dirty.session = true;
+}
+
+function onItem(m) {
+  if (m.t === "begin") {
+    if (m.id !== S.sessionId) resetSession(m.id, m.slac);
+    if (!S.session || m.id > (S.session.id || 0)) newSessionSkeleton(m);
+  } else {
+    if (m.t === "msg" && m.ok && S.session && S.session.phases) applyPhase(phaseOf(m.name, S.session.phases), m.ms);
+    if (m.t === "event" && /^SDP/.test(m.name) && S.session && S.session.phases) applyPhase(2, m.ms);
+    S.items.push(m);
+    if (S.items.length > 20000) S.items.splice(0, 5000);
+    if (m.t === "msg" && m.ok) { addSample(m); applyLive(m); }
+    if (S.samples.length > 40000) S.samples.splice(0, 10000);
+  }
+  dirty.items = true;
+}
+
+// ---- Rendering (batched per animation frame, only the visible tab) -----------------------------
+let tab = "live";
+const dirty = { status: true, session: true, items: true };
+let raf = 0;
+function schedule() { if (!raf) raf = requestAnimationFrame(render); }
+function render() {
+  raf = 0;
+  if (dirty.status) renderStatus();
+  renderLive();
+  if (tab === "chart") renderCharts();
+  if (tab === "session") renderSession();
+  if (tab === "details") renderDetails();
+  if (tab === "network") renderNetwork();
+  if (tab === "log") renderLog();
+  dirty.status = dirty.session = dirty.items = false;
+}
+function redrawAll() { dirty.status = dirty.session = dirty.items = true; schedule(); }
+
+document.querySelectorAll("#tabs button").forEach((b) => {
+  b.onclick = () => {
+    tab = b.dataset.tab;
+    document.querySelectorAll("#tabs button").forEach((x) => x.classList.toggle("on", x === b));
+    document.querySelectorAll(".tab").forEach((x) => x.classList.toggle("on", x.id === "tab-" + tab));
+    try { localStorage.setItem("tab", tab); } catch (e) {}
+    redrawAll();
+  };
+});
+try { const t = localStorage.getItem("tab"); if (t) { const b = document.querySelector('#tabs button[data-tab="' + t + '"]'); if (b) b.click(); } } catch (e) {}
+
+// Session is "running" while messages arrive; after 10 s of silence the last phase is where it stopped
+function sessionState() {
+  const s = S.session;
+  if (!s || !s.id) return "none";
+  const last = Math.max(s.live.msgMs || 0, ...s.phases.map((p) => p.end));
+  if (boxNow() - last < 10000) return "running";
+  return s.current === 8 ? "finished" : "stopped";
+}
+
+function renderStatus() {
+  const st = S.status;
+  if (!st) return;
+  const m = st.modem;
+  if (!st.link) chip("c-modem", "bad", "Ethernet down");
+  else if (!m.alive) chip("c-modem", "bad", "Modem not answering");
+  else if (m.fw === "sniffer") chip("c-modem", "ok", "Sniffer " + m.tag);
+  else if (m.fw === "stock") chip("c-modem", "warn", "Modem: stock firmware?");
+  else chip("c-modem", "", "Modem: checking…");
+  if (!m.alive) chip("c-net", "", "Session network ?");
+  else chip("c-net", m.joined ? "ok" : "", m.joined ? "Joined session network" : "No session network");
+}
+
+// ---- Live tab --------------------------------------------------------------------------------
+function tile(id, value, digits, sub, ageMs) {
+  const t = $(id);
+  t.querySelector(".v").textContent = fmt(value, digits);
+  t.querySelector(".s").textContent = sub || "";
+  t.classList.toggle("old", value === undefined || ageMs > 3000);
+}
+// One value inside the Present/Target tiles; faded when older than 3 s
+function measure(id, value, ageMs) {
+  const m = $(id);
+  m.querySelector(".v").textContent = fmt(value, 1);
+  m.classList.toggle("old", value === undefined || ageMs > 3000);
+}
+
+function renderPhases(target) {
+  clear(target);
+  const s = S.session;
+  const state = sessionState();
+  if (!s || !s.id) return;
+  s.phases.forEach((p, i) => {
+    let cls = "";
+    if (p.start) cls = "done";
+    if (i === s.current) cls = state === "running" ? "run" : state === "stopped" ? "stop" : "done";
+    const e = el("span", "ph " + cls, p.name);
+    if (p.start) {
+      // The running phase counts up; finished ones show first to last message of the phase
+      const ms = cls === "run" ? boxNow() - p.start : p.end - p.start;
+      e.appendChild(el("span", "phd", durShort(ms)));
+    }
+    e.title = p.start ? "for " + dur(p.end - p.start) : "not reached";
+    target.appendChild(e);
+  });
+}
+
+// Compact durations for the phase chips: 0.4 s, 12 s, 3:05
+function durShort(ms) {
+  ms = Math.max(0, ms);
+  return ms < 60000 ? (ms / 1000).toFixed(1) + " s" : mmssFrac(ms, 1);
+}
+
+function renderLive() {
+  const s = S.session;
+  const st = sessionState();
+  chip("c-phase", st === "running" ? "run" : st === "stopped" ? "bad" : st === "finished" ? "ok" : "",
+    st === "none" ? "No session" : (st === "running" ? "" : st === "stopped" ? "Stopped in " : "Finished: ")
+      + (s.current >= 0 ? s.phases[s.current].name : "–"));
+  const tls = s && s.sdp && s.sdp.res && s.sdp.res.sec === "TLS";
+  $("c-tls").hidden = !tls;
+  if (tab !== "live") return;
+  const L = (s && s.live) || {};
+  const now = boxNow();
+  const age = (k) => (L[k] ? now - L[k] : Infinity);
+  const ago = (k) => (L[k] && now - L[k] > 3000 ? " · " + dur(now - L[k]) + " ago" : "");
+  measure("m-pu", L.pU, age("pUMs"));
+  measure("m-pi", L.pI, age("pIMs"));
+  measure("m-tu", L.tU, age("tUMs"));
+  measure("m-ti", L.tI, age("tIMs"));
+  $("t-present").querySelector(".s").textContent = ago("pUMs").replace(/^ · /, "last value ");
+  $("t-target").querySelector(".s").textContent = ago("tUMs").replace(/^ · /, "last value ");
+  const p = L.pU !== undefined && L.pI !== undefined ? L.pU * L.pI / 1000 : undefined;
+  tile("t-p", p, 1, s && s.energy && s.energy.wh ? fmt(s.energy.wh / 1000, 2) + " kWh charged" : "",
+    Math.max(age("pUMs"), age("pIMs")));
+  tile("t-soc", L.soc, 0, ago("socMs").replace(/^ · /, "last value "), age("socMs"));
+  const frac = L.soc !== undefined ? Math.max(0, Math.min(100, L.soc)) / 100 : 0;
+  $("soc-arc").setAttribute("stroke-dasharray", (frac * 2 * Math.PI * 36).toFixed(1) + " 999");
+
+  renderPhases($("live-phases"));
+  const last = $("live-last");
+  clear(last);
+  if (s && s.live && s.live.msg) {
+    last.appendChild(el("b", "", s.live.msg));
+    if (s.live.rc !== undefined) last.appendChild(el("span", s.live.rc >= 4 ? "" : "muted", " · " + rcName(s.live.rc)));
+    last.appendChild(el("span", "muted", " · " + dur(now - s.live.msgMs) + " ago"));
+    if (s.late) last.appendChild(el("div", "muted", "The box joined this session late: SLAC and SDP may be missing."));
+  } else {
+    last.appendChild(el("span", "muted", "Waiting for a charging session…"));
+  }
+  drawCharts(["mini-u", "mini-i"]);
+}
+
+// ---- Charts: one y-axis per panel, shared time axis, synced crosshair --------------------------
+const CHARTS = {
+  u:      { title: "Voltage", unit: "V", digits: 1, series: [["pU", "present", "--c-u"], ["tU", "target", "--s2"]] },
+  i:      { title: "Current", unit: "A", digits: 1, series: [["pI", "present", "--c-i"], ["tI", "target", "--s2"]] },
+  p:      { title: "Power", unit: "kW", digits: 2, series: [["p", "present", "--c-p"]] },
+  soc:    { title: "SoC", unit: "%", digits: 0, series: [["soc", "SoC", "--c-soc"]], max: 100 },
+};
+CHARTS["mini-u"] = Object.assign({}, CHARTS.u, { mini: true });
+CHARTS["mini-i"] = Object.assign({}, CHARTS.i, { mini: true });
+let rangeS = 0;        // 0 = whole session
+let hoverMs = null;    // crosshair position (box ms), shared by all panels
+const GAP_MS = 3000;   // longer pauses break the line
+
+document.querySelectorAll("[data-chart]").forEach((host) => {
+  const key = host.dataset.chart;
+  const c = CHARTS[key];
+  if (!c) return;
+  const head = el("div", "phead");
+  head.appendChild(el("span", "t", c.title));
+  c.keys = c.series.map(([k, label, color]) => {
+    const kEl = el("span", "key");
+    const line = el("i");
+    line.style.background = "var(" + color + ")";
+    const val = el("b", "", "–");
+    kEl.append(line, val, el("span", "muted", " " + c.unit + " " + label));
+    if (c.series.length === 1) kEl.lastChild.textContent = " " + c.unit;
+    head.appendChild(kEl);
+    return val;
+  });
+  const cv = el("canvas", "chart" + (c.mini ? " mini" : ""));
+  host.append(head, cv);
+  c.canvas = cv;
+  const move = (ev) => {
+    const r = cv.getBoundingClientRect();
+    const x = ev.clientX - r.left;
+    if (!c.view || x < c.view.x0 || x > c.view.x1) return;
+    hoverMs = c.view.t0 + (x - c.view.x0) / (c.view.x1 - c.view.x0) * (c.view.t1 - c.view.t0);
+    drawCharts(visibleCharts());
+  };
+  cv.addEventListener("pointermove", move);
+  cv.addEventListener("pointerdown", move);
+  cv.addEventListener("pointerleave", () => { hoverMs = null; drawCharts(visibleCharts()); });
+});
+if (window.ResizeObserver) new ResizeObserver(() => drawCharts(visibleCharts())).observe($("main"));
+
+function visibleCharts() {
+  return tab === "chart" ? ["u", "i", "p", "soc"] : tab === "live" ? ["mini-u", "mini-i"] : [];
+}
+document.querySelectorAll("#range button").forEach((b) => {
+  b.onclick = () => {
+    rangeS = Number(b.dataset.r);
+    document.querySelectorAll("#range button").forEach((x) => x.classList.toggle("on", x === b));
+    renderCharts();
+  };
+});
+
+function niceStep(max, ticks) {
+  const raw = max / ticks, p = Math.pow(10, Math.floor(Math.log10(raw)));
+  const n = raw / p;
+  return (n <= 1 ? 1 : n <= 2 ? 2 : n <= 5 ? 5 : 10) * p;
+}
+
+function drawCharts(keys) {
+  const now = boxNow(), t00 = sessStart();
+  for (const key of keys) {
+    const c = CHARTS[key];
+    const cv = c.canvas;
+    if (!cv || !cv.offsetWidth) continue;
+    const dpr = window.devicePixelRatio || 1;
+    const W = cv.offsetWidth, H = cv.offsetHeight;
+    if (cv.width !== Math.round(W * dpr) || cv.height !== Math.round(H * dpr)) {
+      cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
+    }
+    const g = cv.getContext("2d");
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    g.clearRect(0, 0, W, H);
+
+    const last = S.samples.length ? S.samples[S.samples.length - 1].ms : now;
+    const spanS = c.mini ? 120 : rangeS;
+    const t1 = Math.max(last, Math.min(now, last + 5000));
+    const t0 = spanS ? t1 - spanS * 1000 : Math.min(t00, t1 - 60000);
+    const from = firstSample(t0 - GAP_MS);
+    let max = c.max || 0;
+    if (!c.max) {
+      for (let j = from; j < S.samples.length; j++) for (const [k] of c.series) if (S.samples[j][k] > max) max = S.samples[j][k];
+    }
+    if (!max) max = 1;
+    const step = niceStep(max, c.mini ? 2 : 3);
+    const yMax = Math.ceil(max / step) * step;
+
+    g.font = "12px system-ui, sans-serif";
+    const labelW = Math.max(...[0, step, yMax].map((v) => g.measureText(String(+v.toFixed(2))).width)) + 8;
+    const x0 = labelW, x1 = W - 8, y0 = 6, y1 = H - 20;
+    c.view = { x0, x1, t0, t1 };
+    const X = (t) => x0 + (t - t0) / (t1 - t0) * (x1 - x0);
+    const Y = (v) => y1 - v / yMax * (y1 - y0);
+
+    // Recessive grid and axis labels
+    g.strokeStyle = css("--grid"); g.fillStyle = css("--muted"); g.lineWidth = 1;
+    g.textAlign = "right"; g.textBaseline = "middle";
+    for (let v = 0; v <= yMax + 1e-9; v += step) {
+      const y = Math.round(Y(v)) + 0.5;
+      g.beginPath(); g.moveTo(x0, y); g.lineTo(x1, y); g.stroke();
+      g.fillText(String(+v.toFixed(2)), x0 - 6, y);
+    }
+    g.textAlign = "center"; g.textBaseline = "top";
+    const tickS = niceStep((t1 - t0) / 1000, 5);
+    for (let t = Math.ceil((t0 - t00) / 1000 / tickS) * tickS; t00 + t * 1000 <= t1; t += tickS) {
+      g.fillText(mmss(t * 1000), X(t00 + t * 1000), y1 + 5);
+    }
+    g.strokeStyle = css("--axis");
+    g.beginPath(); g.moveTo(x0, y1 + 0.5); g.lineTo(x1, y1 + 0.5); g.stroke();
+
+    // Lines: 2px, round joins, broken at gaps
+    g.lineWidth = 2; g.lineJoin = "round"; g.lineCap = "round";
+    for (const [k, , color] of c.series) {
+      g.strokeStyle = css(color);
+      g.beginPath();
+      let prev = null;
+      for (let j = from; j < S.samples.length; j++) {
+        const s = S.samples[j];
+        if (s[k] === undefined) continue;
+        const x = X(s.ms), y = Y(s[k]);
+        if (prev === null || s.ms - prev > GAP_MS) g.moveTo(x, y); else g.lineTo(x, y);
+        prev = s.ms;
+      }
+      g.stroke();
+    }
+
+    // Crosshair + readout in the panel header (latest values when not hovering)
+    const at = hoverMs !== null && hoverMs >= t0 && hoverMs <= t1 ? hoverMs : null;
+    c.series.forEach(([k], idx) => {
+      let best = null;
+      for (let j = S.samples.length - 1; j >= 0; j--) {
+        const s = S.samples[j];
+        if (s[k] === undefined) continue;
+        if (at === null) { best = s; break; }
+        if (best === null || Math.abs(s.ms - at) < Math.abs(best.ms - at)) best = s;
+        if (s.ms < at - GAP_MS) break;
+      }
+      const ok = best && (at === null || Math.abs(best.ms - at) <= GAP_MS);
+      c.keys[idx].textContent = ok ? fmt(best[k], c.digits) : "–";
+    });
+    if (at !== null) {
+      const x = Math.round(X(at)) + 0.5;
+      g.strokeStyle = css("--muted"); g.lineWidth = 1;
+      g.beginPath(); g.moveTo(x, y0); g.lineTo(x, y1); g.stroke();
+      g.fillStyle = css("--text"); g.textAlign = x > W - 60 ? "right" : "left"; g.textBaseline = "top";
+      g.fillText(mmss(at - t00), x + (x > W - 60 ? -4 : 4), y0);
+    }
+  }
+}
+
+let tableVisible = false;
+$("tbl-btn").onclick = () => {
+  tableVisible = !tableVisible;
+  $("tbl-card").hidden = !tableVisible;
+  $("tbl-btn").textContent = tableVisible ? "Hide table" : "Show table";
+  renderTable();
+};
+function renderTable() {
+  if (!tableVisible) return;
+  const t = clear($("tbl")), t00 = sessStart();
+  const hr = el("tr");
+  for (const h of ["time", "U present V", "U target V", "I present A", "I target A", "P kW", "SoC %"]) hr.appendChild(el("th", h === "time" ? "" : "num", h));
+  t.appendChild(hr);
+  // Last known value per column at each 5 s step
+  const cur = {};
+  let next = null;
+  const rows = [];
+  for (const s of S.samples) {
+    Object.assign(cur, s);
+    const slot = Math.floor((s.ms - t00) / 5000);
+    if (next === null || slot >= next) { rows.push(Object.assign({ slot }, cur)); next = slot + 1; }
+  }
+  for (const r of rows.slice(-720)) {
+    const tr = el("tr");
+    tr.appendChild(el("td", "", mmss(r.slot * 5000)));
+    for (const [k, d] of [["pU", 1], ["tU", 1], ["pI", 1], ["tI", 1], ["p", 2], ["soc", 0]]) tr.appendChild(el("td", "num", fmt(r[k], d)));
+    t.appendChild(tr);
+  }
+}
+function renderCharts() { drawCharts(["u", "i", "p", "soc"]); renderTable(); }
+
+// ---- Session tab: timeline + ladder ------------------------------------------------------------
+let selected = -1;   // ladder row
+let ladderRows = [];
+
+function baseName(n) { return n.replace(/(Req|Res)$/, "").replace(/\.(REQ|CNF|IND|RSP)$/, ""); }
+
+function buildLadder() {
+  const rows = [];
+  for (const it of S.items) {
+    if (!it.name) continue;
+    const b = baseName(it.name);
+    const prev = rows[rows.length - 1];
+    if (prev && prev.base === b && it.ok !== false) {
+      prev.count++; prev.last = it; prev.dirs.add(it.dir);
+    } else {
+      rows.push({ base: b, count: 1, first: it, last: it, dirs: new Set([it.dir]), err: it.ok === false });
+    }
+  }
+  return rows;
+}
+
+function renderSession() {
+  const s = S.session, tl = clear($("timeline"));
+  if (!s || !s.id) { tl.appendChild(el("p", "muted", "No session yet.")); }
+  else {
+    const reached = s.phases.filter((p) => p.start);
+    const a = reached.length ? Math.min(...reached.map((p) => p.start)) : 0;
+    const b = reached.length ? Math.max(...reached.map((p) => p.end)) : 1;
+    const state = sessionState();
+    s.phases.forEach((p, i) => {
+      const row = el("div", "tl-row");
+      row.appendChild(el("span", "", p.name));
+      const track = el("div", "tl-track");
+      if (p.start) {
+        const bar = el("div", "tl-bar");
+        bar.style.left = ((p.start - a) / Math.max(1, b - a) * 100) + "%";
+        bar.style.width = ((p.end - p.start) / Math.max(1, b - a) * 100) + "%";
+        if (i === s.current && state === "stopped") bar.style.background = "var(--bad)";
+        track.appendChild(bar);
+      }
+      row.appendChild(track);
+      const status = !p.start ? "not reached" : i === s.current ? (state === "running" ? "running " : state === "stopped" ? "stopped " : "") + durShort(p.end - p.start) : durShort(p.end - p.start);
+      row.appendChild(el("span", "d", status));
+      tl.appendChild(row);
+    });
+  }
+
+  ladderRows = buildLadder();
+  const body = clear($("ladder")), t00 = sessStart();
+  const shown = ladderRows.slice(-60);
+  const offset = ladderRows.length - shown.length;
+  shown.forEach((r, i) => {
+    const tr = el("tr", offset + i === selected ? "sel" : "");
+    const both = r.dirs.size > 1;
+    const fromCar = r.dirs.has("car");
+    const label = (r.err ? "! " : "") + r.base + (r.count > 1 ? " ×" + r.count : "");
+    const left = el("td", "car"), mid = el("td", "mid", mmssFrac(r.first.ms - t00, 1)), right = el("td", "chg");
+    if (both) { left.append(el("span", "arrow", "⇄ "), el("span", "", label)); }
+    else if (fromCar) { left.append(el("span", "", label), el("span", "arrow", " →")); }
+    else { right.append(el("span", "arrow", "← "), el("span", "", label)); }
+    if (r.err) (both || fromCar ? left : right).style.color = "var(--bad)";
+    tr.append(left, mid, right);
+    tr.onclick = () => { selected = offset + i; showDetail(r); renderSession(); };
+    body.appendChild(tr);
+  });
+  $("ladder-note").textContent = offset ? "Showing the last 60 of " + ladderRows.length + " rows." : "";
+}
+
+function showDetail(r) {
+  const m = Object.assign({}, r.last);
+  delete m.t;
+  const lines = [];
+  for (const [k, v] of Object.entries(m)) lines.push(k.padEnd(6) + " " + (k === "rc" ? v + " (" + rcName(v) + ")" : k === "ms" ? mmssFrac(v - sessStart(), 2) : v));
+  if (r.count > 1) lines.push("", "Repeated " + r.count + " times, last shown.");
+  $("detail").textContent = lines.join("\n");
+}
+
+// ---- Details tab -----------------------------------------------------------------------------
+function renderDetails() {
+  const s = S.session || {};
+  const sdp = s.sdp || {};
+  dl($("d-sdp"), [
+    ["Request (car)", sdp.req ? "security " + sdp.req.sec + ", " + sdp.req.tr : "not seen"],
+    ["Response (charger)", sdp.res ? "security " + sdp.res.sec + ", " + sdp.res.tr : "not seen"],
+    ["Charger address", sdp.res ? "[" + sdp.res.ip + "]:" + sdp.res.port : "", "mono"],
+  ]);
+
+  const hs = $("d-hs");
+  clear(hs);
+  const h = s.hs || { offered: [] };
+  if (!h.offered.length && h.result === undefined) hs.appendChild(el("p", "muted", "Not seen."));
+  if (h.offered.length) {
+    const t = el("table");
+    const hr = el("tr");
+    for (const x of ["offered by the car", "version", "ID", "prio"]) hr.appendChild(el("th", x === "offered by the car" ? "" : "num", x));
+    t.appendChild(hr);
+    for (const p of h.offered) {
+      const tr = el("tr", p.id === h.schema ? "" : "muted");
+      tr.append(el("td", "mono", p.ns + (p.id === h.schema ? "  ✓ selected" : "")), el("td", "num", p.ver), el("td", "num", p.id), el("td", "num", p.prio));
+      t.appendChild(tr);
+    }
+    hs.appendChild(t);
+  }
+  if (h.result !== undefined) hs.appendChild(el("p", "", "Charger: " + (HS[h.result] || h.result) + (h.schema !== undefined ? ", schema ID " + h.schema : "")));
+
+  const cpd = $("d-cpd");
+  clear(cpd);
+  const c = s.cpd || {};
+  if (!c.req && !c.res) cpd.appendChild(el("p", "muted", "Not seen."));
+  else {
+    const t = el("table");
+    const hr = el("tr");
+    for (const x of ["", "car (request)", "charger (response)"]) hr.appendChild(el("th", x ? "num" : "", x));
+    t.appendChild(hr);
+    const q = c.req || {}, r = c.res || {};
+    const row = (k, a, b) => { const tr = el("tr"); tr.append(el("td", "", k), el("td", "num", a === undefined ? "–" : a), el("td", "num", b === undefined ? "–" : b)); t.appendChild(tr); };
+    row("max voltage", q.maxU !== undefined ? fmt(q.maxU, 1) + " V" : undefined, r.maxU !== undefined ? fmt(r.maxU, 1) + " V" : undefined);
+    row("max current", q.maxI !== undefined ? fmt(q.maxI, 1) + " A" : undefined, r.maxI !== undefined ? fmt(r.maxI, 1) + " A" : undefined);
+    row("min voltage", undefined, r.minU !== undefined ? fmt(r.minU, 1) + " V" : undefined);
+    row("min current", undefined, r.minI !== undefined ? fmt(r.minI, 1) + " A" : undefined);
+    row("max power", undefined, r.maxP !== undefined ? fmt(r.maxP / 1000, 1) + " kW" : undefined);
+    row("energy transfer", q.mode !== undefined ? MODES[q.mode] || q.mode : undefined, undefined);
+    row("SoC / full / bulk", q.soc !== undefined ? q.soc + " / " + (q.fullSoc !== undefined ? q.fullSoc : "–") + " / " + (q.bulkSoc !== undefined ? q.bulkSoc : "–") + " %" : undefined, undefined);
+    row("EV ready, error code", q.ready !== undefined ? (q.ready ? "ready" : "not ready") + ", " + q.err : undefined, undefined);
+    row("response", undefined, r.rc !== undefined ? rcName(r.rc) + (r.processing ? ", ongoing" : ", finished") : undefined);
+    cpd.appendChild(t);
+  }
+
+  const e = s.energy || {};
+  const avgKw = e.flowS ? e.wh / 1000 / (e.flowS / 3600) : undefined;
+  dl($("d-energy"), [
+    ["Energy", e.wh !== undefined ? fmt(e.wh / 1000, 3) + " kWh" : ""],
+    ["Charge", e.ah !== undefined ? fmt(e.ah, 2) + " Ah" : ""],
+    ["Peak power", e.peakW !== undefined ? fmt(e.peakW / 1000, 2) + " kW" : ""],
+    ["Average power", avgKw !== undefined ? fmt(avgKw, 2) + " kW" : ""],
+    ["Time with current", e.flowS !== undefined ? dur(e.flowS * 1000) : ""],
+  ]);
+  const id = s.ident || {};
+  dl($("d-ident"), [
+    ["EVCCID", id.evccid, "mono masked"], ["Session ID", id.sessionId, "mono masked"],
+    ["Car modem MAC", id.pevMac, "mono masked"], ["Charger modem MAC", id.evseMac, "mono masked"],
+    ["NID", id.nid, "mono masked"], ["NMK", id.nmk, "mono masked"],
+  ]);
+}
+
+// ---- Network tab -----------------------------------------------------------------------------
+let prevStatus = null, rates = {};
+function renderNetwork() {
+  const st = S.status;
+  if (!st) return;
+  const t = clear($("n-frames"));
+  const hr = el("tr");
+  for (const x of ["", "count", "per second"]) hr.appendChild(el("th", x ? "num" : "", x));
+  t.appendChild(hr);
+  for (const [k, label] of [["rx", "all frames"], ["mme", "HomePlug"], ["ipv6", "IPv6"], ["ipv4", "IPv4 / ARP"], ["other", "other"],
+      ["drop", "dropped by the box"], ["v2gOk", "V2G decoded"], ["v2gFail", "V2G failed"], ["gaps", "TCP gaps"]]) {
+    const tr = el("tr");
+    tr.append(el("td", "", label), el("td", "num", st[k]), el("td", "num", rates[k] !== undefined ? fmt(rates[k], 1) : "–"));
+    t.appendChild(tr);
+  }
+  const m = st.modem;
+  dl($("n-modem"), [
+    ["Status", m.alive ? "answering" : m.mac ? "NOT answering" : "searching…"],
+    ["Firmware", m.fw === "sniffer" ? "sniffer, build " + m.tag : m.fw === "stock" ? "no sniffer tag (stock firmware?)" : "checking…"],
+    ["Version", m.ver, "mono"], ["MAC", m.mac, "mono"],
+    ["Network", !m.alive ? "" : m.joined ? "joined, CCo TEI " + m.cco : "not joined"],
+    ["Stations", m.joined && m.stations.length ? m.stations.map((x) => x.mac + " (TEI " + x.tei + ")").join("\n") : "", "mono"],
+  ]);
+  $("n-modem").lastChild.style.whiteSpace = "pre-line";
+  dl($("n-box"), [
+    ["Firmware", S.hello ? S.hello.fw + " " + S.hello.ver + " (" + S.hello.build + ")" : ""],
+    ["Uptime", dur(st.ms)],
+    ["Ethernet", st.link ? st.speed + " Mbit/s " + (st.fd ? "full" : "half") + " duplex" : "no link"],
+    ["Free memory", Math.round(st.heap / 1024) + " kB"],
+    ["Viewers", st.ws + " browser" + (st.ws === 1 ? "" : "s") + ", " + st.sta + " Wi-Fi station" + (st.sta === 1 ? "" : "s")],
+  ]);
+  drawAtten();
+}
+
+// Attenuation: one bar per carrier group, single series; tap a bar for its value
+let attenHover = -1;
+const attenHost = document.querySelector('[data-chart="atten"]');
+const attenCv = el("canvas", "chart");
+attenHost.appendChild(attenCv);
+attenCv.addEventListener("pointermove", (ev) => {
+  const a = S.session && S.session.atten;
+  if (!a || !attenCv.view) return;
+  const r = attenCv.getBoundingClientRect(), v = attenCv.view;
+  const i = Math.floor((ev.clientX - r.left - v.x0) / v.bw);
+  attenHover = i >= 0 && i < a.groups.length ? i : -1;
+  drawAtten();
+});
+attenCv.addEventListener("pointerleave", () => { attenHover = -1; drawAtten(); });
+
+function drawAtten() {
+  const a = S.session && S.session.atten;
+  const note = $("atten-note");
+  const cv = attenCv;
+  if (!cv.offsetWidth) return;
+  const dpr = window.devicePixelRatio || 1, W = cv.offsetWidth, H = cv.offsetHeight;
+  cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
+  const g = cv.getContext("2d");
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g.clearRect(0, 0, W, H);
+  if (!a || !a.groups.length) { note.textContent = "No attenuation profile seen in this session."; return; }
+  const max = Math.max(...a.groups), avg = a.groups.reduce((x, y) => x + y, 0) / a.groups.length;
+  const step = niceStep(Math.max(1, max), 3), yMax = Math.ceil(Math.max(1, max) / step) * step;
+  g.font = "12px system-ui, sans-serif";
+  const x0 = g.measureText(String(yMax)).width + 10, x1 = W - 8, y0 = 6, y1 = H - 20;
+  const bw = (x1 - x0) / a.groups.length;
+  cv.view = { x0, bw };
+  const Y = (v) => y1 - v / yMax * (y1 - y0);
+  g.strokeStyle = css("--grid"); g.fillStyle = css("--muted"); g.lineWidth = 1; g.textAlign = "right"; g.textBaseline = "middle";
+  for (let v = 0; v <= yMax; v += step) { const y = Math.round(Y(v)) + 0.5; g.beginPath(); g.moveTo(x0, y); g.lineTo(x1, y); g.stroke(); g.fillText(v, x0 - 6, y); }
+  g.textAlign = "center"; g.textBaseline = "top";
+  g.fillText("carrier group 1 … " + a.groups.length + "  (dB, higher = weaker coupling)", (x0 + x1) / 2, y1 + 5);
+  const barW = Math.max(1, Math.min(24, bw - 2));
+  a.groups.forEach((v, i) => {
+    const x = x0 + i * bw + (bw - barW) / 2, y = Y(v);
+    g.fillStyle = css("--s1");
+    g.globalAlpha = attenHover >= 0 && attenHover !== i ? 0.55 : 1;
+    const r = Math.min(4, barW / 2, (y1 - y) / 2);
+    g.beginPath();
+    g.moveTo(x, y1); g.lineTo(x, y + r); g.quadraticCurveTo(x, y, x + r, y);
+    g.lineTo(x + barW - r, y); g.quadraticCurveTo(x + barW, y, x + barW, y + r); g.lineTo(x + barW, y1);
+    g.fill();
+  });
+  g.globalAlpha = 1;
+  note.textContent = (attenHover >= 0 ? "Group " + (attenHover + 1) + ": " + a.groups[attenHover] + " dB · " : "")
+    + "average " + fmt(avg, 1) + " dB, worst " + max + " dB, " + a.sounds + " sounds received";
+}
+
+// ---- Log tab ---------------------------------------------------------------------------------
+let logFilter = "all", logQuery = "", logFollow = true;
+document.querySelectorAll("#logf button").forEach((b) => {
+  b.onclick = () => {
+    logFilter = b.dataset.f;
+    document.querySelectorAll("#logf button").forEach((x) => x.classList.toggle("on", x === b));
+    renderLog();
+  };
+});
+$("logq").oninput = () => { logQuery = $("logq").value.toLowerCase(); renderLog(); };
+$("logbox").onscroll = () => {
+  const b = $("logbox");
+  logFollow = b.scrollTop + b.clientHeight >= b.scrollHeight - 20;
+  $("jump").classList.toggle("show", !logFollow);
+};
+$("jump").onclick = () => { logFollow = true; renderLog(); };
+
+function kind(it) {
+  if (it.t === "msg") return it.ok ? "v2g" : "err";
+  return /^SDP/.test(it.name) ? "sdp" : "slac";
+}
+function itemText(it) {
+  const parts = [];
+  if (it.rc !== undefined) parts.push(rcName(it.rc));
+  if (it.tU !== undefined) parts.push("target " + fmt(it.tU, 1) + " V" + (it.tI !== undefined ? " " + fmt(it.tI, 1) + " A" : ""));
+  if (it.pU !== undefined) parts.push("present " + fmt(it.pU, 1) + " V" + (it.pI !== undefined ? " " + fmt(it.pI, 1) + " A" : ""));
+  if (it.soc !== undefined) parts.push("SoC " + it.soc + " %");
+  return parts.join(" · ");
+}
+function renderLog() {
+  if (tab !== "log") return;
+  const body = clear($("log")), t00 = sessStart();
+  const rows = S.items.filter((it) => (logFilter === "all" || kind(it) === logFilter) &&
+    (!logQuery || (it.name + " " + itemText(it)).toLowerCase().indexOf(logQuery) >= 0)).slice(-500);
+  for (const it of rows) {
+    const tr = el("tr", kind(it) === "err" ? "err" : "");
+    tr.append(el("td", "mono", mmssFrac(it.ms - t00, 2)), el("td", "muted", it.dir), el("td", "", (it.ok === false ? "decode failed: " : "") + it.name), el("td", "muted", itemText(it)));
+    body.appendChild(tr);
+  }
+  if (logFollow) $("logbox").scrollTop = $("logbox").scrollHeight;
+}
+
+// ---- Export ----------------------------------------------------------------------------------
+function download(name, type, text) {
+  const a = el("a");
+  a.href = URL.createObjectURL(new Blob([text], { type }));
+  a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+function stamp() { return new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-"); }
+$("exp-json").onclick = () => {
+  const session = JSON.parse(JSON.stringify(S.session || {}));
+  if (!$("exp-id").checked) delete session.ident;
+  download("ccs32ebony-session-" + stamp() + ".json", "application/json", JSON.stringify({
+    exported: new Date().toISOString(), box: S.hello, sessionStartWallClock: new Date(sessStart() + S.offset).toISOString(),
+    session, items: S.items }, null, 1));
+};
+$("exp-csv").onclick = () => {
+  const t00 = sessStart(), lines = ["t_s,u_present_v,u_target_v,i_present_a,i_target_a,p_kw,soc_pct"];
+  const v = (x, d) => (x === undefined ? "" : Number(x).toFixed(d));
+  for (const s of S.samples) lines.push([((s.ms - t00) / 1000).toFixed(3), v(s.pU, 1), v(s.tU, 1), v(s.pI, 1), v(s.tI, 1), v(s.p, 3), v(s.soc, 0)].join(","));
+  download("ccs32ebony-values-" + stamp() + ".csv", "text/csv", lines.join("\n") + "\n");
+};
+
+// ---- Connection ------------------------------------------------------------------------------
+// The box sends "status" every second: that is the heartbeat. If the box resets or its Wi-Fi
+// goes away, the browser often gets no close event for minutes, so the page watches it itself.
+const SILENT_MS = 3000;     // no message for this long: show "not responding"
+const RECONNECT_MS = 5000;  // ... and for this long: drop the socket and connect again
+let lastMsgAt = 0;          // last message, or the start of the current connection attempt
+let socket = null, ping = 0, healthy = false;
+
+function connect() {
+  const ws = new WebSocket("ws://" + location.host + "/ws");
+  socket = ws;
+  lastMsgAt = Date.now();
+  ws.onopen = () => {
+    S.live = false;  // the box first replays its recent messages, then sends "live"
+    clearInterval(ping);
+    ping = setInterval(() => { try { ws.send('{"t":"ping"}'); } catch (e) {} }, 10000);
+  };
+  ws.onmessage = (ev) => {
+    lastMsgAt = Date.now();
+    if (!healthy) { healthy = true; chip("c-ws", "ok", "Box connected"); }
+    $("main").classList.remove("stale");
+    let m;
+    try { m = JSON.parse(ev.data); } catch (e) { return; }
+    if (m.ms !== undefined && (m.t === "status" || m.t === "hello")) S.offset = Date.now() - m.ms;
+    switch (m.t) {
+      case "hello": {
+        S.hello = m;
+        const bad = m.proto !== PROTO;
+        $("banner").className = "banner" + (bad ? " show" : "");
+        $("banner").textContent = bad ? "This page (protocol " + PROTO + ") does not match the box firmware (protocol "
+          + m.proto + "). Reload the page; if that does not help, update the firmware." : "";
+        prevStatus = null;
+        break;
+      }
+      case "status":
+        if (prevStatus) {
+          const dt = (m.ms - prevStatus.ms) / 1000;
+          for (const k of ["rx", "mme", "ipv6", "ipv4", "other", "drop", "v2gOk", "v2gFail", "gaps"]) rates[k] = dt > 0 ? Math.max(0, (m[k] - prevStatus[k]) / dt) : 0;
+        }
+        prevStatus = m; S.status = m; dirty.status = true;
+        break;
+      case "session":
+        // During the replay the "begin" items switch sessions; afterwards the snapshot may too
+        if (S.live && m.id && m.id !== S.sessionId) resetSession(m.id, slacStartOf(m));
+        S.session = m; dirty.session = true;
+        break;
+      case "live":
+        S.live = true;
+        if (S.session && S.session.id && S.session.id !== S.sessionId) resetSession(S.session.id, slacStartOf(S.session));
+        break;
+      case "begin": case "msg": case "event":
+        onItem(m);
+        break;
+    }
+    schedule();
+  };
+  ws.onclose = () => {
+    if (socket !== ws) return;  // an abandoned socket closing late
+    abandon();
+    setTimeout(connect, 1500);
+  };
+  ws.onerror = () => ws.close();
+}
+
+// Forget the current socket (its late events are ignored) and show the box as gone
+function abandon() {
+  const ws = socket;
+  socket = null;
+  clearInterval(ping);
+  healthy = false;
+  chip("c-ws", "bad", "Box: reconnecting…");
+  $("main").classList.add("stale");
+  if (ws) {
+    ws.onopen = ws.onmessage = ws.onclose = ws.onerror = null;
+    try { ws.close(); } catch (e) {}
+  }
+}
+
+// Heartbeat watchdog; also refreshes "x s ago" when no message arrives
+setInterval(() => {
+  const silent = Date.now() - lastMsgAt;
+  if (socket && silent > RECONNECT_MS) {
+    abandon();
+    connect();
+  } else if (silent > SILENT_MS) {
+    healthy = false;
+    chip("c-ws", "bad", "Box not responding");
+    $("main").classList.add("stale");
+  }
+  schedule();
+}, 1000);
+
+connect();
+</script>
+</body>
+</html>

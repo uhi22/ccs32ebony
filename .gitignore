@@ -1,0 +1,33 @@
+# Local configuration with secrets (Wi-Fi password etc.).
+# The committed template is ebony_config.example.h.
+ebony_config.h
+
+# Arduino / arduino-cli build output
+build/
+*.bin
+*.elf
+*.map
+*.hex
+
+# Captures, serial logs and session exports may contain MAC addresses, vehicle identifiers and network keys
+*.pcap
+*.pcapng
+captures/
+logs/
+exports/
+
+# Python helper scripts (web packer, mock box)
+__pycache__/
+*.pyc
+.venv/
+
+# Node tooling, if used for the mock box or UI development
+node_modules/
+
+# Editors and OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+desktop.ini
