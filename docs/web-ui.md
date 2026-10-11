@@ -65,7 +65,26 @@ narrow screens). The last tab and the theme are remembered on the device.
    Frame counters by type with rates, decode results and TCP gaps. The local modem (version,
    sniffer tag, joined, station list) and the box (firmware, uptime, memory, viewers). SLAC
    attenuation profile per carrier group as a bar chart (ccs32dave page 5).
-6. **Log**
+   **Modems in the network:** the button "Read modem versions" makes the box send one GET_SW
+   broadcast. The list accumulates over the reads (kept in the box's RAM until "Clear" or a box
+   restart), each modem with its latest version and when it last answered ("12 s ago"); a modem
+   that is no longer in the network shows as "not in the network now". Listed with role (this sniffer, charger (CCo), car =
+   the station with the sniffer's learned car TEI, other station), MAC, TEI and firmware version.
+   Stations of the network that did not answer are listed as "no answer". Read only on request,
+   never cyclically (unlike ccs32dave). The other modems answer to the sniffer's own TEI, which the
+   sniffer does not accept while it follows a session; so the box pauses the sniffer's ping-pong
+   for the read (about 0.3 s: pause, broadcast, 200 ms collection, resume) and the page says so.
+   V2G frames of that moment are not caught; the charging session itself is not affected.
+6. **Sniffer**
+   The sniffer firmware's status block (sniffer builds v146..v199), refreshed every 0.5 s: TEI
+   learning (state, car / charger / own TEI, candidates, found or missed at the SDP request,
+   fallback retries), timing after the join (SDP request, car TEI learned, first SDP response),
+   join state, traffic caught (all frames, V2G TCP to the charger and to the car, SDP) with rates,
+   foreign management messages dropped (v147+), and the firmware (build, modem uptime, time since
+   its last restart, restarts seen by the box). Unexpected values (a miss, more than one car
+   candidate, dropped messages, restarts) are shown in red. When a car TEI is known, the status bar
+   shows it next to "Joined session network".
+7. **Log**
    All SLAC, SDP and V2G messages of the session, starting with its first SLAC message.
    Filterable (SLAC / SDP / V2G / errors) and searchable, with auto-scroll that pauses when you
    scroll up.
@@ -98,18 +117,32 @@ time.
 | `event` | box → UI | one SLAC or SDP event: `dir`, `name` (e.g. `SLAC_PARAM.REQ`, `SDPRes none TCP port 15118`) |
 | `live` | box → UI | the replay after connecting is complete |
 | `get` | UI → box | request `status` and `session` now |
+| `sniffer` | box → UI | the sniffer's status block, after each read (2 Hz) and on connect; see below |
+| `versions` | box → UI | the accumulated version list: `running`, `started` (box ms of the last read), `answers` (in the last read), `paused` (the sniffer's ping-pong was paused for it), `resumeFailed`, `list` (`mac`, `ver`, `seen` = box ms of its last answer); when a read starts, when it ends, after a clear, and on connect |
+| `clearVersions` | UI → box | empty the version list |
+| `readVersions` | UI → box | start a version read (pause the sniffer's ping-pong, one GET_SW broadcast, answers collected for 200 ms, resume) |
 | `ping` | UI → box | keep-alive, every 10 s |
 
 `status`: `ms`, Ethernet `link`/`speed`/`fd`, frame counters `rx`, `drop`, `mme`, `ipv6`, `ipv4`,
 `other`, decoder counters `v2gOk`, `v2gFail`, `gaps`, `heap`, WebSocket clients `ws`, Wi-Fi
 stations `sta`, and `modem` with `alive`, `mac`, `ver`, `fw` (`sniffer` / `stock` / `unknown`),
-`tag`, `joined`, `cco`, `stations` (`mac`, `tei`).
+`tag`, `joined`, `cco`, `ccoMac`, `stations` (`mac`, `tei`).
 
 `session`: `id`, `start`, `late`, `phases` (name, start, end; 0 = not reached), `current`,
 `live` (last message, response code, target/present values and SoC with the time each was
 last seen), `sdp`, `hs` (offered protocols, result, schema), `cpd` (request and response
 limits), `ident` (EVCCID, SessionID, modem MACs, NID, NMK), `energy` (Wh, Ah, peak W, seconds
 with current), `atten` (sounds, dB per carrier group).
+
+`sniffer`: `ms`, `state` (`off` no sniffer build v146..v199 / `reading` / `valid` / `notRefreshed` modem
+just restarted / `badLayout` / `noAnswer`), `reads`, `timeouts`, `restarts` (modem restarts seen by the
+box), `lastRestart` (modem uptime ms at the last one), and `b` with the decoded block: `build`, `size`,
+`up` (modem uptime ms), `seq` (10 Hz since the modem's last firmware start), `tJoin` `tSdp` `tLearned`
+`tFirstResp` (modem uptime ms, 0 = not yet), `own`, `cco`, `assoc`, `fsm`, `teiA`, `teiB`, `natOwn`,
+`cands`, `found`, `miss`, `retryOk`, `pending`, `retryMiss`, `clears`, `nSt`, `maxTei`, `tcpCharger`,
+`tcpCar`, `frames`, `sdpReq`, `sdpResp`, and from v147 `rej` and `rejLast` (MMTYPE). The block's meaning
+is defined by the sniffer firmware (see concept.md, "Talking to the local modem"); the times in `b`
+are the modem's, not the box's. Added without a protocol version change: an older page ignores it.
 
 All times are box milliseconds. The UI derives the session state: running while messages
 arrive, then "stopped in <phase>" or "finished" after 10 s of silence.

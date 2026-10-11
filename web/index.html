@@ -164,6 +164,7 @@ pre.detail { white-space: pre-wrap; margin: 0; }
 
 /* Details */
 .masked { filter: blur(6px); cursor: pointer; user-select: none; }
+dd.warnv { color: var(--bad); font-weight: 600; }
 .cols2 { display: grid; grid-template-columns: 1fr 1fr; gap: var(--gap); }
 
 /* Log */
@@ -198,6 +199,7 @@ input[type=search] { font: inherit; padding: 6px 10px; border-radius: 999px; bor
     <button data-tab="session">Session</button>
     <button data-tab="details">Details</button>
     <button data-tab="network">Network</button>
+    <button data-tab="sniffer">Sniffer</button>
     <button data-tab="log">Log</button>
   </nav>
 </div>
@@ -298,8 +300,29 @@ input[type=search] { font: inherit; padding: 6px 10px; border-radius: 999px; bor
       <div class="card"><h2>Frames from the sniffer</h2><table id="n-frames"></table></div>
       <div class="card"><h2>Local modem</h2><dl id="n-modem"></dl></div>
       <div class="card"><h2>Box</h2><dl id="n-box"></dl></div>
+      <div class="card wide"><h2>Modems in the network</h2>
+        <p style="margin-top:0"><button class="icon-btn" id="n-readver">Read modem versions</button>
+          <button class="icon-btn" id="n-clearver">Clear</button>
+          <span class="muted" id="n-vernote"></span></p>
+        <table id="n-vers"></table>
+        <p class="muted" id="n-verhint" style="margin-bottom:0"></p></div>
       <div class="card wide"><h2>SLAC attenuation per carrier group</h2>
         <div class="panel" data-chart="atten"></div><p class="muted" id="atten-note" style="margin-bottom:0"></p></div>
+    </div>
+  </section>
+
+  <!-- Sniffer internals: the sniffer modem's status block (firmware v146+) -->
+  <section class="tab" id="tab-sniffer">
+    <p class="muted" id="s-note"></p>
+    <div class="grid">
+      <div class="card"><h2>TEI learning</h2><dl id="s-tei"></dl></div>
+      <div class="card"><h2>Timing after the join</h2><dl id="s-time"></dl></div>
+      <div class="card"><h2>Join state</h2><dl id="s-join"></dl></div>
+      <div class="card"><h2>Traffic caught</h2><table id="s-traffic"></table></div>
+      <div class="card"><h2>Foreign management messages</h2><dl id="s-rej"></dl>
+        <p class="muted" style="margin-bottom:0">Messages whose stock handler space the sniffer patch reuses are
+        dropped and counted (from firmware v147). Older builds restarted on them.</p></div>
+      <div class="card"><h2>Sniffer firmware</h2><dl id="s-fw"></dl></div>
     </div>
   </section>
 
@@ -502,6 +525,7 @@ function render() {
   if (tab === "session") renderSession();
   if (tab === "details") renderDetails();
   if (tab === "network") renderNetwork();
+  if (tab === "sniffer") renderSniffer();
   if (tab === "log") renderLog();
   dirty.status = dirty.session = dirty.items = false;
 }
@@ -537,7 +561,11 @@ function renderStatus() {
   else if (m.fw === "stock") chip("c-modem", "warn", "Modem: stock firmware?");
   else chip("c-modem", "", "Modem: checking…");
   if (!m.alive) chip("c-net", "", "Session network ?");
-  else chip("c-net", m.joined ? "ok" : "", m.joined ? "Joined session network" : "No session network");
+  else {
+    const b = S.sniffer && S.sniffer.b;
+    const car = m.joined && b && b.teiB ? " · car TEI " + b.teiB : "";
+    chip("c-net", m.joined ? "ok" : "", m.joined ? "Joined session network" + car : "No session network");
+  }
 }
 
 // ---- Live tab --------------------------------------------------------------------------------
@@ -951,9 +979,140 @@ function renderDetails() {
 
 // ---- Network tab -----------------------------------------------------------------------------
 let prevStatus = null, rates = {};
+// ---- Sniffer tab (status block of the sniffer firmware, contract v146..v199, layout 1) ---------
+const SNIFFER_RATES = ["frames", "tcpCharger", "tcpCar", "sdpReq", "sdpResp"];
+let prevSniffer = null;
+const snifferRates = {};
+// The management messages the sniffer drops (v147, backlog-0144); names from open-plc-utils
+const MME_NAMES = { 0x600C: "CM_GET_KEY", 0xA004: "VS_WR_MEM", 0xA008: "VS_RD_MEM", 0xA010: "VS_GET_NVM",
+  0xA02C: "VS_WD_RPT", 0xA040: "VS_CP_RPT", 0xA07C: "VS_FAC_DEFAULTS", 0xA094: "VS_SET_LED_BEHAVIOR",
+  0xA0A4: "VS_BANDWIDTH_LIMITING", 0xA0AC: "VS_NN_MITIGATE", 0xA0D0: "VS_MULTIPORT_LNK_STA", 0xA0E0: "VS_STANDBY",
+  0xA0E1: "VS_STANDBY.CNF" };
+function hex4(v) { return "0x" + v.toString(16).toUpperCase().padStart(4, "0"); }
+function sec(ms) { return fmt(ms / 1000, 1) + " s"; }
+
+function renderSniffer() {
+  const sn = S.sniffer, m = S.status && S.status.modem;
+  const STATE = { off: "not read (no sniffer build v146..v199 detected)", reading: "reading…", valid: "valid",
+    notRefreshed: "modem just restarted, block not filled yet", badLayout: "unknown layout (newer firmware?)",
+    noAnswer: "no answer to the last read" };
+  $("s-note").textContent = !sn ? "No data yet." : sn.state === "valid" ? "" : "Status block: " + (STATE[sn.state] || sn.state)
+    + (sn.state === "off" && m && m.fw === "sniffer" ? " – this sniffer build has no status block (needs v146 or newer)." : "");
+  const b = sn && sn.b;
+  if (!b) {
+    for (const id of ["s-tei", "s-time", "s-join", "s-rej", "s-fw"]) clear($(id));
+    clear($("s-traffic"));
+    return;
+  }
+  const learned = b.teiB ? "car TEI " + b.teiB + " (charger " + b.teiA + ", own " + b.natOwn + ")"
+    : b.pending ? "car not found yet – fallback, retrying" : b.teiA ? "learning…" : "waiting for the SDP request";
+  dl($("s-tei"), [
+    ["State", learned],
+    ["Accepting now (own TEI)", b.own],
+    ["Car candidates at the lookup", b.cands, b.cands > 1 ? "warnv" : ""],
+    ["Found at the SDP request", b.found],
+    ["Missed at the SDP request", b.miss, b.miss > 0 ? "warnv" : ""],
+    ["Found later by retry", b.retryOk],
+    ["Retries without result", b.retryMiss],
+    ["Cleared (left / re-joined)", b.clears],
+  ]);
+  const rel = (t) => (!t || !b.tJoin ? "–" : sec(t - b.tJoin));
+  dl($("s-time"), [
+    ["Joined at modem uptime", b.tJoin ? sec(b.tJoin) : "not joined"],
+    ["SDP request", rel(b.tSdp)],
+    ["Car TEI learned", rel(b.tLearned)],
+    ["First SDP response caught", rel(b.tFirstResp)],
+  ]);
+  dl($("s-join"), [
+    ["Associated", b.assoc === 0x0f ? "no" : "yes (state 0x" + b.assoc.toString(16) + ")"],
+    ["Join state machine", b.fsm + (b.fsm === 8 ? " (joined)" : "")],
+    ["Charger (CCo) TEI", b.cco],
+    ["Stations in the modem's table", b.nSt + " (incl. the sniffer itself while it runs)"],
+    ["Highest TEI", b.maxTei],
+  ]);
+  const t = clear($("s-traffic"));
+  const hr = el("tr");
+  for (const x of ["", "count", "per second"]) hr.appendChild(el("th", x ? "num" : "", x));
+  t.appendChild(hr);
+  for (const [k, label] of [["frames", "all frames"], ["tcpCharger", "V2G TCP to the charger"], ["tcpCar", "V2G TCP to the car"],
+      ["sdpReq", "SDP requests"], ["sdpResp", "SDP responses caught"]]) {
+    const tr = el("tr");
+    tr.append(el("td", "", label), el("td", "num", b[k]), el("td", "num", snifferRates[k] !== undefined ? fmt(snifferRates[k], 1) : "–"));
+    t.appendChild(tr);
+  }
+  dl($("s-rej"), b.rej === undefined ? [["Dropped", "not reported by this build (needs v147)"]] : [
+    ["Dropped since the last restart", b.rej, b.rej > 0 ? "warnv" : ""],
+    ["Last dropped type", b.rej ? hex4(b.rejLast) + (MME_NAMES[b.rejLast] ? " " + MME_NAMES[b.rejLast] : "") : "–", "mono"],
+  ]);
+  dl($("s-fw"), [
+    ["Build", b.build + " (status block layout 1, " + b.size + " bytes)"],
+    ["Modem uptime", dur(b.up)],
+    ["Since the last modem restart", dur(b.seq * 100)],
+    ["Restarts seen by this box", sn.restarts + (sn.restarts ? ", last at modem uptime " + dur(sn.lastRestart) : ""),
+      sn.restarts > 0 ? "warnv" : ""],
+    ["Block reads / timeouts", sn.reads + " / " + sn.timeouts],
+  ]);
+}
+
+// Modem versions: read on demand (one GET_SW broadcast); roles from the station list and the
+// sniffer's learned car TEI
+$("n-readver").onclick = () => { if (socket) { try { socket.send('{"t":"readVersions"}'); } catch (e) {} } };
+$("n-clearver").onclick = () => { if (socket) { try { socket.send('{"t":"clearVersions"}'); } catch (e) {} } };
+function renderVersions() {
+  const v = S.versions, m = S.status && S.status.modem, b = S.sniffer && S.sniffer.b;
+  const lc = (x) => (x || "").toLowerCase();
+  const stations = (m && m.joined && m.stations) || [];
+  const teiOf = (mac) => { const x = stations.find((y) => lc(y.mac) === lc(mac)); return x ? x.tei : undefined; };
+  const role = (mac, tei) => {
+    if (m && lc(mac) === lc(m.mac)) return "this sniffer";
+    if (m && m.ccoMac && lc(mac) === lc(m.ccoMac)) return "charger (CCo)";
+    if (b && b.teiB && tei === b.teiB) return "car";
+    return "other station";
+  };
+  // The other modems answer to the sniffer's real TEI. The box pauses the sniffer's ping-pong for the read
+  // (about 0.3 s) so that these answers get in; V2G frames of that moment are not caught.
+  const hint = $("n-verhint");
+  hint.className = "muted";
+  hint.textContent = !v || v.running || !v.started ? ""
+    : v.resumeFailed ? "Resuming the sniffer's ping-pong was NOT confirmed – it may not follow the session until the modem restarts."
+    : v.paused ? "The sniffer's ping-pong was paused for about 0.3 s for this read; V2G frames of that moment were not caught."
+    : "Read without pausing the sniffer (no sniffer status block, or not joined).";
+  hint.style.color = v && v.resumeFailed ? "var(--bad)" : "";
+  if (!v || (!v.started && !v.list.length)) {
+    $("n-vernote").textContent = "Empty. Each read sends one request to all modems in the session network; the list grows over the reads.";
+    clear($("n-vers")); return;
+  }
+  $("n-vernote").textContent = v.running ? "reading…" : !v.started ? "" : "last read at "
+    + new Date(v.started + S.offset).toLocaleTimeString() + ": " + v.answers + " answer" + (v.answers === 1 ? "" : "s");
+  const t = clear($("n-vers"));
+  const hr = el("tr");
+  for (const x of ["Role", "MAC", "TEI", "Version", "Last answer"]) hr.appendChild(el("th", "", x));
+  t.appendChild(hr);
+  const rows = v.list.map((x) => {
+    let tei = teiOf(x.mac);
+    if (m && lc(x.mac) === lc(m.mac) && b && b.natOwn) tei = b.natOwn;
+    const inNet = !m || !m.joined || lc(x.mac) === lc(m.mac) || stations.some((y) => lc(y.mac) === lc(x.mac));
+    return [inNet ? role(x.mac, tei) : "not in the network now", x.mac, tei, x.ver, dur(Math.max(0, boxNow() - x.seen)) + " ago"];
+  });
+  if (!v.running) {
+    for (const st of stations) {   // in the network but no answer (e.g. a non-Qualcomm car modem)
+      if (!v.list.some((x) => lc(x.mac) === lc(st.mac))) rows.push([role(st.mac, st.tei), st.mac, st.tei, "no answer", ""]);
+    }
+  }
+  const order = { "this sniffer": 0, "charger (CCo)": 1, "car": 2, "other station": 3, "not in the network now": 4 };
+  rows.sort((a, c) => order[a[0]] - order[c[0]]);
+  for (const [r, mac, tei, ver, ago] of rows) {
+    const tr = el("tr");
+    tr.append(el("td", "", r), el("td", "mono", mac), el("td", "num", tei === undefined ? "–" : tei), el("td", "mono", ver),
+      el("td", "num", ago));
+    t.appendChild(tr);
+  }
+}
+
 function renderNetwork() {
   const st = S.status;
   if (!st) return;
+  renderVersions();
   const t = clear($("n-frames"));
   const hr = el("tr");
   for (const x of ["", "count", "per second"]) hr.appendChild(el("th", x ? "num" : "", x));
@@ -1141,6 +1300,16 @@ function connect() {
           for (const k of ["rx", "mme", "ipv6", "ipv4", "other", "drop", "v2gOk", "v2gFail", "gaps"]) rates[k] = dt > 0 ? Math.max(0, (m[k] - prevStatus[k]) / dt) : 0;
         }
         prevStatus = m; S.status = m; dirty.status = true;
+        break;
+      case "sniffer":
+        if (prevSniffer && prevSniffer.b && m.b && m.b.seq >= prevSniffer.b.seq) {
+          const dt = (m.ms - prevSniffer.ms) / 1000;
+          for (const k of SNIFFER_RATES) snifferRates[k] = dt > 0 ? Math.max(0, (m.b[k] - prevSniffer.b[k]) / dt) : 0;
+        }
+        prevSniffer = m; S.sniffer = m; dirty.status = true;
+        break;
+      case "versions":
+        S.versions = m; dirty.status = true;
         break;
       case "session":
         // During the replay the "begin" items switch sessions; afterwards the snapshot may too

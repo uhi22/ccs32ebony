@@ -61,6 +61,31 @@ Planned work, roughly in order. Check an item off with a one-line result; do not
 - [ ] Flash budget: the app is about 1,033 KB of the 1.25 MB default app partition. Before
   ISO 15118-2 or OTA, switch to a partition scheme with a bigger app (e.g. "No OTA", 2 MB) or
   plan OTA around it.
+- [x] Sniffer tab: the sniffer firmware's status block (TEI learning and timing, traffic per
+  direction, modem uptime and restarts, dropped management messages). Read with `RDM1` every
+  0.5 s (`local_modem.*`), WebSocket message `sniffer`, serial `sniffer`. Verified (2026-10-11)
+  with build v147 on a bench session: 2 reads/s, 0 timeouts, car TEI 3 learned 0.8 s after the
+  join, first SDP response 0.9 s.
+- [x] Network tab: "Read modem versions" button (one GET_SW broadcast on request, not cyclic as in
+  ccs32dave), list with role, MAC, TEI and version, non-answering stations as "no answer".
+  Verified (2026-10-11): sniffer V2.4 (844) and the pyPLC charger modem (1.4.0.20) answer.
+- [x] Why the car modem (and a second sniffer) were missing from the version read: the sniffer's
+  TEI switching. Every modem answers to the sniffer's own TEI, but while the sniffer follows a
+  session it accepts the charger's or the car's TEI instead. Shown (2026-10-11): with the
+  sniffer's own TEI set back to its real TEI the second sniffer answers; from the charger side all
+  four modems answer, the Foccci as QCA7005 1.1.0.730. The paired Foccci sends an SDP request
+  right after joining, which switches the sniffer again.
+- [x] Version read pauses the sniffer's ping-pong (owner decision, contract section 5): armed = 0,
+  OWN_TEI = nat_own, broadcast, 200 ms collection, armed = 1. Accepted cost: the V2G frames of
+  ~0.3 s are not caught.
+  Verified (2026-10-11, bench, two sniffers, 3 sessions, a read every 12 s): during a session a read
+  gets the sniffer, the charger and the car (or the sniffer and the second sniffer: with two
+  sniffers both switch, a bench-only case); no session lost, the ping-pong resumed every time.
+- [x] Version list accumulates over the reads (box RAM, up to 16 modems, latest version and "last
+  answer ... ago" per modem; modems that left the network stay as "not in the network now"); a
+  Clear button (serial `versions clear`) empties it. Verified (2026-10-11): with the Foccci joined
+  and no session running, one read got all four modems (both sniffers, charger 1.4.0.20, Foccci
+  QCA7005 1.1.0.730).
 - [ ] Mock box: replay a recorded session for UI development without hardware.
 - [ ] Field test with a real car and charger (so far: bench sessions with pyPLC only).
 - [x] Licence file: `LICENSE` (GPL-3.0, text as in ccs32dave); `src/exi/` stays under its own

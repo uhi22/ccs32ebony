@@ -129,19 +129,61 @@ bool parseGetSwCnf(const uint8_t *frame, uint16_t len, SoftwareVersion &out) {
   return true;
 }
 
-bool parseSnifferTagCnf(const uint8_t *frame, uint16_t len, char tag[17]) {
-  // The sniffer's tag answer has zeros where the OUI and the length byte would be, so only the
+bool parseSnifferCnf(const uint8_t *frame, uint16_t len, uint8_t out[16]) {
+  // The sniffer's answer has zeros where the OUI and the length byte would be, so only the
   // MMTYPE is checked (seen on a TL-PA4010P with build 261008-V142-0844)
   if (len < OFS_SW_VERSION + 16 || etherType(frame) != ETHERTYPE_HOMEPLUG ||
       mmtype(frame) != (MMTYPE_GET_SW | MMTYPE_CNF)) {
     return false;
   }
+  memcpy(out, &frame[OFS_SW_VERSION], 16);
+  return true;
+}
+
+bool parseSnifferTagCnf(const uint8_t *frame, uint16_t len, char tag[17]) {
+  uint8_t raw[16];
+  if (!parseSnifferCnf(frame, len, raw)) {
+    return false;
+  }
   for (uint8_t i = 0; i < 16; i++) {
-    char c = frame[OFS_SW_VERSION + i];
+    char c = raw[i];
     tag[i] = (c < 0x20 || c > 0x7E) ? '.' : c;
   }
   tag[16] = '\0';
   return true;
+}
+
+uint16_t composeSnifferReadReq(uint8_t *frame, const uint8_t dst[6], const uint8_t src[6], uint32_t addr) {
+  uint8_t ofs = composeVendorHeader(frame, dst, src, MMTYPE_GET_SW | MMTYPE_REQ);
+  memcpy(&frame[ofs], "RDM1", 4);
+  for (uint8_t i = 0; i < 4; i++) {
+    frame[ofs + 4 + i] = (addr >> (8 * i)) & 0xFF;  // little endian, at offset 24
+  }
+  return MIN_ETH_FRAME_LEN;
+}
+
+uint16_t composeSnifferWriteReq(uint8_t *frame, const uint8_t dst[6], const uint8_t src[6], uint32_t addr,
+                                uint8_t value) {
+  uint8_t ofs = composeVendorHeader(frame, dst, src, MMTYPE_GET_SW | MMTYPE_REQ);
+  memcpy(&frame[ofs], "WRM1", 4);
+  for (uint8_t i = 0; i < 4; i++) {
+    frame[ofs + 4 + i] = (addr >> (8 * i)) & 0xFF;  // little endian, at offset 24
+  }
+  frame[ofs + 8] = 1;      // width: one byte (offset 28)
+  frame[ofs + 9] = value;  // offset 29
+  return MIN_ETH_FRAME_LEN;
+}
+
+int snifferBuild(const char *tag) {
+  if (!isSnifferTag(tag)) {
+    return -1;
+  }
+  for (uint8_t i = 8; i < 11; i++) {
+    if (!isdigit((unsigned char)tag[i])) {
+      return -1;
+    }
+  }
+  return (tag[8] - '0') * 100 + (tag[9] - '0') * 10 + (tag[10] - '0');
 }
 
 bool isSnifferTag(const char *v) {

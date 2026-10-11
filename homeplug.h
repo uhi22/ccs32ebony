@@ -68,6 +68,23 @@ bool parseSnifferTagCnf(const uint8_t *frame, uint16_t len, char tag[17]);
 // True if a version string has the sniffer build tag format "YYMMDD-Vnnn-xxxx"
 bool isSnifferTag(const char *version);
 
+// Build number nnn of a sniffer tag "YYMMDD-Vnnn-xxxx", or -1
+int snifferBuild(const char *tag);
+
+// GET_SW.REQ with the "RDM1" pattern: the sniffer firmware answers with the 16 bytes at addr.
+// The answer does not repeat the address, so only one such request may be outstanding at a time.
+uint16_t composeSnifferReadReq(uint8_t *frame, const uint8_t dst[6], const uint8_t src[6], uint32_t addr);
+
+// GET_SW.REQ with the "WRM1" pattern: the sniffer firmware writes one byte at addr and answers with the
+// 16 bytes there, read back after the write (same answer shape as "RDM1"). Only for the addresses the
+// sniffer contract allows (see local_modem.h).
+uint16_t composeSnifferWriteReq(uint8_t *frame, const uint8_t dst[6], const uint8_t src[6], uint32_t addr,
+                                uint8_t value);
+
+// The 16 content bytes (offset 23) of a sniffer GET_SW.CNF (answer to "GST1" or "RDM1").
+// Only the MMTYPE is checked, as for the tag. Returns true if frame is a GET_SW.CNF.
+bool parseSnifferCnf(const uint8_t *frame, uint16_t len, uint8_t out[16]);
+
 // VS_NW_INFO.REQ (0xA038) to dst. Returns the frame length.
 uint16_t composeVsNwInfoReq(uint8_t *frame, const uint8_t dst[6], const uint8_t src[6]);
 

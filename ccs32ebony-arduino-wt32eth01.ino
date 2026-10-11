@@ -298,7 +298,7 @@ static bool buildStatus(char *buf, size_t size) {
   j.raw(",\"joined\":").boolean(modem.joined());
   if (modem.joined()) {
     const homeplug::VsNetworkInfo &nw = modem.networkInfo();
-    j.raw(",\"cco\":%u,\"stations\":[", nw.ccoTei);
+    j.raw(",\"cco\":%u,\"ccoMac\":", nw.ccoTei).mac(nw.ccoMac).raw(",\"stations\":[");
     for (uint8_t i = 0; i < nw.numStations; i++) {
       j.raw("%s{\"mac\":", i ? "," : "").mac(nw.stations[i].mac).raw(",\"tei\":%u}", nw.stations[i].tei);
     }
@@ -323,6 +323,70 @@ static void sendStatus(int id) {
     sendTo(id, buf);
   } else {
     log_e("status message truncated");
+  }
+}
+
+// The sniffer's status block (LocalModem, sniffer builds v146..v199); 2 Hz, after each block read
+static bool buildSniffer(char *buf, size_t size) {
+  static const char *const STATE[] = {"off", "reading", "valid", "notRefreshed", "badLayout", "noAnswer"};
+  JsonOut j(buf, size);
+  j.raw("{\"t\":\"sniffer\",\"ms\":%lu,\"state\":\"%s\",\"reads\":%lu,\"timeouts\":%lu,\"restarts\":%lu",
+        millis(), STATE[(int)modem.blockState()], (unsigned long)modem.blockReads(),
+        (unsigned long)modem.blockTimeouts(), (unsigned long)modem.modemRestarts());
+  if (modem.modemRestarts() > 0) {
+    j.raw(",\"lastRestart\":%lu", (unsigned long)modem.lastRestartUptimeMs());
+  }
+  if (modem.blockReads() > 0) {
+    const SnifferStatus &b = modem.sniffer();
+    j.raw(",\"b\":{\"build\":%u,\"size\":%u,\"up\":%lu,\"seq\":%lu,\"tJoin\":%lu,\"tSdp\":%lu,\"tLearned\":%lu,"
+          "\"tFirstResp\":%lu,\"own\":%u,\"cco\":%u,\"assoc\":%u,\"fsm\":%u,\"teiA\":%u,\"teiB\":%u,"
+          "\"natOwn\":%u,\"cands\":%u,\"found\":%u,\"miss\":%u,\"retryOk\":%u,\"pending\":%u,"
+          "\"retryMiss\":%u,\"clears\":%u,\"nSt\":%u,\"maxTei\":%u,\"tcpCharger\":%u,\"tcpCar\":%u,"
+          "\"frames\":%lu,\"sdpReq\":%u,\"sdpResp\":%u",
+          b.build, b.size, (unsigned long)b.uptimeMs, (unsigned long)b.seq, (unsigned long)b.tJoin,
+          (unsigned long)b.tSdp, (unsigned long)b.tLearned, (unsigned long)b.tFirstResp, b.ownTei, b.ccoTei,
+          b.assoc, b.fsm, b.teiA, b.teiB, b.natOwn, b.cands, b.foundAtSdp, b.missAtSdp, b.foundByRetry,
+          b.pending, b.retryMisses, b.clears, b.nStations, b.maxTei, b.tcpToCharger, b.tcpToCar,
+          (unsigned long)b.frames, b.sdpReq, b.sdpResp);
+    if (b.hasRejected) {
+      j.raw(",\"rej\":%u,\"rejLast\":%u", b.rejectedMme, b.lastRejectedMmtype);
+    }
+    j.raw("}");
+  }
+  j.raw("}");
+  return !j.truncated();
+}
+
+static void sendSniffer(int id) {
+  char buf[768];
+  if (buildSniffer(buf, sizeof(buf))) {
+    sendTo(id, buf);
+  } else {
+    log_e("sniffer message truncated");
+  }
+}
+
+// Result of the on-demand version scan (button "Read modem versions")
+static void sendVersions(int id) {
+  if (!modem.hasVersionResult()) {
+    return;
+  }
+  static char buf[2048];  // up to 16 modems; static: too big for the loop task's stack
+  JsonOut j(buf, sizeof(buf));
+  j.raw("{\"t\":\"versions\",\"ms\":%lu,\"running\":%s,\"started\":%lu,\"paused\":%s,\"resumeFailed\":%s,"
+        "\"answers\":%u,\"list\":[", millis(), modem.versionScanRunning() ? "true" : "false",
+        (unsigned long)modem.versionScanStartedMs(), modem.versionScanPaused() ? "true" : "false",
+        modem.versionScanResumeFailed() ? "true" : "false", modem.lastScanAnswers());
+  for (uint8_t i = 0; i < modem.versionCount(); i++) {
+    const ModemVersion &v = modem.versionAt(i);
+    j.raw("%s{\"mac\":", i ? "," : "").mac(v.mac).raw(",\"ver\":").str(v.version)
+        .raw(",\"seen\":%lu}", (unsigned long)v.lastSeenMs);
+  }
+  j.raw("]}");
+  if (j.truncated()) {
+    log_e("versions message truncated");
+  } else {
+    sendTo(id, buf);
   }
 }
 
@@ -353,6 +417,8 @@ static void onSessionMessage(const char *json) {
 static void onWebConnect(uint8_t id) {
   sendHello(id);
   sendStatus(id);
+  sendSniffer(id);
+  sendVersions(id);
   sendSession(id);
   replayCursor[id] = session.oldestSeq();
   replayDone[id] = false;
@@ -383,7 +449,14 @@ static void feedReplay() {
 static void onWebText(uint8_t id, const char *text) {
   if (strstr(text, "\"t\":\"get\"") != nullptr) {
     sendStatus(id);
+    sendSniffer(id);
     sendSession(id);
+  }
+  if (strstr(text, "\"t\":\"readVersions\"") != nullptr) {
+    modem.startVersionScan(millis());
+  }
+  if (strstr(text, "\"t\":\"clearVersions\"") != nullptr) {
+    modem.clearVersions();
   }
   // "ping" only keeps the connection alive
 }
@@ -402,6 +475,13 @@ static void handleCommand(String cmd) {
     printSummary();
   } else if (cmd == "modem") {
     modem.printStatus(Serial);
+  } else if (cmd == "versions") {
+    modem.startVersionScan(millis());
+  } else if (cmd == "versions clear") {
+    modem.clearVersions();
+    Serial.println("Modem versions: list cleared");
+  } else if (cmd == "sniffer") {
+    modem.printSniffer(Serial);
   } else if (cmd == "modem retag") {
     modem.retag();
     Serial.println("Modem: asking for the sniffer tag again");
@@ -413,7 +493,7 @@ static void handleCommand(String cmd) {
       Serial.println("session message truncated");
     }
   } else if (cmd.length() > 0) {
-    Serial.println("commands: log 0|1, hex <n>, stat, modem, modem retag, session");
+    Serial.println("commands: log 0|1, hex <n>, stat, modem, modem retag, sniffer, versions, versions clear, session");
   }
 }
 
@@ -470,6 +550,12 @@ void loop() {
 
   uint32_t now = millis();
   modem.cycle(now);
+  if (modem.takeBlockUpdate()) {
+    sendSniffer(-1);
+  }
+  if (modem.takeVersionUpdate()) {
+    sendVersions(-1);
+  }
   if (now - lastWebStatus >= WEB_STATUS_INTERVAL_MS) {
     lastWebStatus = now;
     sendStatus(-1);

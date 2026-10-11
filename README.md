@@ -58,8 +58,11 @@ ccs32dave.
 - **Session:** the phase timeline and a message ladder between car and charger.
 - **Details:** SDP, protocol handshake, charge parameters of car and charger, energy, and identity
   and keys (masked until tapped).
-- **Network:** frames, the local modem (sniffer build, joined or not), the box, and the SLAC
-  attenuation profile.
+- **Network:** frames, the local modem (sniffer build, joined or not), the box, the SLAC
+  attenuation profile, and on request the firmware versions of all modems in the network.
+- **Sniffer:** the sniffer firmware's own status (v146 or newer): which TEI it learned for the car
+  and when, the traffic it caught per direction, modem uptime and restarts, and management
+  messages it dropped.
 - **Log:** every SLAC, SDP and V2G message, filterable, with export to JSON and CSV.
 
 ## Quick start

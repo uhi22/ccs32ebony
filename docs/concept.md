@@ -83,7 +83,32 @@ How it is done (`local_modem.cpp`), and what was seen on the hardware:
    reported "own TEI" switches back and forth (that's how it receives both directions), so it is
    not shown as meaningful. The modem's real TEI is its entry in the station list.
 
-All queries are unicast to the local modem. Nothing is broadcast onto the powerline.
+4. **Status block** (sniffer builds v146..v199): `GET_SW.REQ` with the payload `RDM1` and a
+   4-byte little-endian address at byte 24 returns the 16 bytes at that address, at byte 23 of the
+   answer (same shape as the tag answer). Every 0.5 s the box reads the 80-byte block at
+   `0x22c2a8` with five such requests, strictly one after the other: the answer does not repeat
+   the address, so only one may be outstanding (300 ms timeout per read). It checks magic `EBS1`,
+   layout 1 and the size byte, and decodes only fields below the size (64 bytes in v146, 80 from
+   v147). A drop of the block's `seq` (10 Hz since the modem's last firmware start) counts as a
+   modem restart. For any other tag nothing is read: a wrong address can reset the modem.
+   The block layout is a contract owned by the sniffer firmware project
+   (qca7000-transparency, `plans/interface-ardut-ebony.md`): stable for builds v146..v199, new
+   fields only appended. Serial: `sniffer`.
+
+5. **Modem versions, on request only** (button on the Network tab, serial `versions`): one
+   `GET_SW.REQ` to the broadcast address. Every Qualcomm modem in the session network answers
+   with its MAC and version, unicast to the box; the answers of 200 ms are collected (up to 8;
+   they come within ~100 ms). This is the one deliberate exception to "nothing goes onto the
+   powerline": a single read request, only when the user asks, allowed at any time, also during a
+   session. The answers are addressed to the sniffer's own TEI, which it does not accept while its
+   ping-pong follows a session; so around the broadcast the box pauses the ping-pong with two
+   `WRM1` writes allowed by the sniffer contract (armed = 0 at `0x22c4f8`, OWN_TEI = the block's
+   nat_own at `0x8bdec`) and resumes it afterwards (armed = 1, retried up to 5 times). The
+   ping-pong resynchronises on the next V2G frame. If the box resets during the pause, the sniffer
+   stays paused until its next firmware restart (at the next session start). These two bytes are
+   the only writes the box ever does.
+
+All other queries are unicast to the local modem. Nothing else is broadcast onto the powerline.
 
 ### Decoding
 
