@@ -88,10 +88,59 @@ Planned work, roughly in order. Check an item off with a one-line result; do not
   QCA7005 1.1.0.730).
 - [ ] Mock box: replay a recorded session for UI development without hardware.
 - [ ] Field test with a real car and charger (so far: bench sessions with pyPLC only).
+- [ ] **Session tab blocks tab switching during a fast charge (field 2026-10-12, Tesla Supercharger).**
+  CurrentDemand time and count kept updating (~30 CurrentDemand per second), but tapping another tab
+  only grayed its name briefly; the tab stayed on "Session" for 1-2 min until the session was
+  stopped at the station. Same item in the transparency repo: `backlog-0146`.
+  What the code says: the tab switch is client-only (`web/index.html` tab click handler, no
+  round trip to the box), so the page itself was stuck. On the Session tab every animation frame
+  that a new message schedules runs `renderSession()`, which rebuilds the whole ladder from all
+  `S.items` (`buildLadder()`, up to 20000 items, two regex replaces each) and recreates the
+  timeline and 60 rows. At ~60 messages/s that is several thousand items per frame after 2 min.
+  Hypotheses: (H1) `renderSession` saturates the main thread, clicks wait - only on the Session
+  tab, worse with session length; (H2) the message flood alone saturates the page - other tabs
+  block too; (H3) box side (WebSocket stall, heap) - unlikely, the click needs no server.
+  Plan:
+  1. Reproduce without a car: a Python mock box (see "Mock box" above) serves `web/index.html` and
+     speaks the WebSocket protocol (`docs/web-ui.md`): hello/status/session at 1 Hz plus
+     CurrentDemandReq/Res `msg` items at 10, 30, 60 pairs/s. Replay the field session instead if
+     a page export ("save") from the Supercharger exists. Test on the real tablet and in desktop
+     Chrome with CPU throttling.
+  2. Measure: Chrome Performance profile (render time, `buildLadder` share, input delay); for the
+     tablet (no console) a debug readout behind a flag in the status bar: render ms, renders/s,
+     messages/s. Each rate on each tab; note the item count at which switching starts to block.
+  3. Rule out H3: the same load through the real box (pyPLC bench with a fast CurrentDemand loop,
+     or the mock feeding the box), watch serial `S` lines for ws / wsdrop / heap.
+  4. Fix after confirming: incremental ladder (extend the last row, process only new items,
+     cache `baseName`), throttle Session-tab rendering to ~4 Hz, skip render when nothing is
+     dirty. Verify with the same reproduction at 30 and 60 pairs/s on the tablet.
+  Open questions for the owner: which tablet/browser was used; did the counter on the page match
+  the box's real rate (serial `session`), or did the page lag behind?
 - [x] Licence file: `LICENSE` (GPL-3.0, text as in ccs32dave); `src/exi/` stays under its own
   LGPL-3.0 headers (OpenV2G).
 
 ## Later / ideas
+
+- [ ] **Cloud status / debug upload via a second Wi-Fi (to be discussed, owner 2026-10-11).** The ESP32 supports
+  AP+STA (`WIFI_AP_STA`, esp32 core 3.0.2): keep the `ccs32ebony` AP and additionally join an existing
+  Wi-Fi as a client; the Ethernet stays sniff-only (no IP), so this client is the only way out.
+  Known constraints:
+  - One radio, one channel: the AP follows the joined network's channel; a tablet on the AP drops
+    briefly when that happens (the page reconnects by itself).
+  - Heap: about 140 KB free with one viewer; TLS (HTTPS / MQTT over TLS) costs about 40-50 KB per
+    connection - measure.
+  - Flash: app about 1.04 MB of 1.25 MB; an HTTPS/MQTT client adds about 100-200 KB, so the
+    partition scheme probably has to change first (see "Flash budget" above).
+  - In the field there is no site Wi-Fi: realistic is a phone hotspot. If the tablet itself is the
+    hotspot, ebony could join it and the AP would mostly be a fallback.
+  Open questions:
+  1. Which network in the field: phone hotspot, the tablet's hotspot, something else?
+  2. Cloud target: MQTT broker, HTTPS POST to an own server, an existing service (Google Sheet,
+     InfluxDB, ...)? With or without TLS?
+  3. What and how often: e.g. the sniffer status block every 10 s plus events (modem restart, SDP
+     miss, rejected MME), and/or a session summary at the end?
+  4. Credentials: in `ebony_config.h` at build time, or entered on the page and stored in NVS
+     (needs the settings page below)?
 
 - [ ] ISO 15118-2 decoding
 - [ ] Keep earlier sessions in the browser (selectable list) instead of starting each session
