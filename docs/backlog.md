@@ -114,6 +114,17 @@ Planned work, roughly in order. Check an item off with a one-line result; do not
   4. Fix after confirming: incremental ladder (extend the last row, process only new items,
      cache `baseName`), throttle Session-tab rendering to ~4 Hz, skip render when nothing is
      dirty. Verify with the same reproduction at 30 and 60 pairs/s on the tablet.
+  **Quick fix applied 2026-10-13 without steps 1-3:** incremental `buildLadder()` (full rebuild
+  only after a session reset or the 20000-item trim) and Session-tab rebuild at most every
+  250 ms and only when dirty (`SESSION_RENDER_MS`). Headless Chrome on the desktop: `renderSession`
+  8.8 ms at 15000 items (x60/s before) -> ~0.1 ms (max 4/s); incremental == full rebuild,
+  checked across the trim. **Log tab too:** same 250 ms throttle (`HEAVY_RENDER_MS`, shared
+  with Session); while following, only new rows are appended and the oldest dropped beyond 500
+  (full rebuild only on filter/search/jump/tab switch, trim, session reset; the newest 500
+  matches are searched from the end); while scrolled up the table no longer follows new items
+  (use "jump"). Render 17.7 ms -> 0.4 ms; incremental == full rebuild in 48 checks over four
+  filters, a search and the trim. Built and uploaded to the box 2026-10-13 (boots, serial `S` lines
+  normal). Not yet verified on the tablet or in a real fast charge - next field session.
   Open questions for the owner: which tablet/browser was used; did the counter on the page match
   the box's real rate (serial `session`), or did the page lag behind?
 - [x] Licence file: `LICENSE` (GPL-3.0, text as in ccs32dave); `src/exi/` stays under its own

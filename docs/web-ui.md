@@ -55,6 +55,8 @@ narrow screens). The last tab and the theme are remembered on the device.
    - Message ladder between car and charger (ccs32dave page 9). Consecutive messages of the same
      exchange collapse into one row with a count. Tap a row to see the decoded fields of its last
      message.
+   - Redrawn at most 4 times per second (up to ~60 messages/s arrive in a fast charge), so the
+     newest row may lag by up to 0.25 s.
 4. **Details**
    - SDP request and response, charger address
    - Protocol handshake: offered schemas, the selected one, the result (ccs32dave page 2)
@@ -86,8 +88,9 @@ narrow screens). The last tab and the theme are remembered on the device.
    shows it next to "Joined session network".
 7. **Log**
    All SLAC, SDP and V2G messages of the session, starting with its first SLAC message.
-   Filterable (SLAC / SDP / V2G / errors) and searchable, with auto-scroll that pauses when you
-   scroll up.
+   Filterable (SLAC / SDP / V2G / errors) and searchable; the table shows the newest 500 matching
+   messages. While at the bottom it follows new messages (redrawn at most 4 times per second);
+   when you scroll up, the table holds still for reading and "jump" returns to following.
 
 ### Export
 

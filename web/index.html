@@ -505,7 +505,7 @@ function onItem(m) {
     if (m.t === "msg" && m.ok && S.session && S.session.phases) applyPhase(phaseOf(m.name, S.session.phases), m.ms);
     if (m.t === "event" && /^SDP/.test(m.name) && S.session && S.session.phases) applyPhase(2, m.ms);
     S.items.push(m);
-    if (S.items.length > 20000) S.items.splice(0, 5000);
+    if (S.items.length > 20000) { S.items.splice(0, 5000); ladder.n = -1; logShown.n = -1; }
     if (m.t === "msg" && m.ok) { addSample(m); applyLive(m); }
     if (S.samples.length > 40000) S.samples.splice(0, 10000);
   }
@@ -517,19 +517,38 @@ let tab = "live";
 const dirty = { status: true, session: true, items: true };
 let raf = 0;
 function schedule() { if (!raf) raf = requestAnimationFrame(render); }
+// The Session and Log tabs rebuild their DOM at most every HEAVY_RENDER_MS (a fast charge sends ~60
+// messages/s; a rebuild per frame starved the page's input handling, field 2026-10-12). The Log
+// tab does not follow new items while scrolled up (the rows would slide away under the reader).
+const HEAVY_RENDER_MS = 250;
+let heavyPending = false, heavyRenderedAt = 0, heavyTimer = 0, heavyFull = true;
 function render() {
   raf = 0;
   if (dirty.status) renderStatus();
   renderLive();
   if (tab === "chart") renderCharts();
-  if (tab === "session") renderSession();
+  if (tab === "session" || tab === "log") {
+    if ((dirty.session || dirty.items) && (tab !== "log" || logFollow)) heavyPending = true;
+    const wait = heavyRenderedAt + HEAVY_RENDER_MS - performance.now();
+    if (heavyPending && wait <= 0) {
+      heavyPending = false;
+      heavyRenderedAt = performance.now();
+      if (tab === "session") renderSession(); else renderLog(!heavyFull);
+      heavyFull = false;
+    } else if (heavyPending && !heavyTimer) {
+      heavyTimer = setTimeout(() => { heavyTimer = 0; schedule(); }, wait);
+    }
+  }
   if (tab === "details") renderDetails();
   if (tab === "network") renderNetwork();
   if (tab === "sniffer") renderSniffer();
-  if (tab === "log") renderLog();
   dirty.status = dirty.session = dirty.items = false;
 }
-function redrawAll() { dirty.status = dirty.session = dirty.items = true; schedule(); }
+function redrawAll() {
+  dirty.status = dirty.session = dirty.items = true;
+  heavyPending = true; heavyRenderedAt = 0; heavyFull = true;
+  schedule();
+}
 
 document.querySelectorAll("#tabs button").forEach((b) => {
   b.onclick = () => {
@@ -838,9 +857,16 @@ let ladderRows = [];
 
 function baseName(n) { return n.replace(/(Req|Res)$/, "").replace(/\.(REQ|CNF|IND|RSP)$/, ""); }
 
+// Incremental: only items added since the last call are grouped. A new S.items array (session
+// reset) or a trimmed one (ladder.n = -1) rebuilds from scratch.
+const ladder = { items: null, n: 0, rows: [] };
 function buildLadder() {
-  const rows = [];
-  for (const it of S.items) {
+  if (ladder.items !== S.items || ladder.n < 0 || ladder.n > S.items.length) {
+    ladder.items = S.items; ladder.n = 0; ladder.rows = [];
+  }
+  const rows = ladder.rows;
+  for (; ladder.n < S.items.length; ladder.n++) {
+    const it = S.items[ladder.n];
     if (!it.name) continue;
     const b = baseName(it.name);
     const prev = rows[rows.length - 1];
@@ -1224,15 +1250,32 @@ function itemText(it) {
   if (it.soc !== undefined) parts.push("SoC " + it.soc + " %");
   return parts.join(" · ");
 }
-function renderLog() {
+// What the log table shows: rows for S.items[0 .. n) under this filter/query/time base (n = -1: stale)
+const logShown = { items: null, n: -1, filter: "", query: "", t00: 0 };
+function renderLog(incremental = false) {
   if (tab !== "log") return;
-  const body = clear($("log")), t00 = sessStart();
-  const rows = S.items.filter((it) => (logFilter === "all" || kind(it) === logFilter) &&
-    (!logQuery || (it.name + " " + itemText(it)).toLowerCase().indexOf(logQuery) >= 0)).slice(-500);
-  for (const it of rows) {
+  const body = $("log"), t00 = sessStart();
+  const match = (it) => (logFilter === "all" || kind(it) === logFilter) &&
+    (!logQuery || (it.name + " " + itemText(it)).toLowerCase().indexOf(logQuery) >= 0);
+  const row = (it) => {
     const tr = el("tr", kind(it) === "err" ? "err" : "");
     tr.append(el("td", "mono", mmssFrac(it.ms - t00, 2)), el("td", "muted", it.dir), el("td", "", (it.ok === false ? "decode failed: " : "") + it.name), el("td", "muted", itemText(it)));
-    body.appendChild(tr);
+    return tr;
+  };
+  const L = logShown;
+  if (incremental && L.items === S.items && L.n >= 0 && L.n <= S.items.length && L.filter === logFilter &&
+      L.query === logQuery && L.t00 === t00) {
+    // Append only the items added since the last render, drop the oldest rows beyond 500
+    for (; L.n < S.items.length; L.n++) if (match(S.items[L.n])) body.appendChild(row(S.items[L.n]));
+    while (body.childElementCount > 500) body.removeChild(body.firstChild);
+  } else {
+    // The newest 500 matches, searched from the end: the cost no longer grows with the session
+    clear(body);
+    const rows = [];
+    for (let i = S.items.length - 1; i >= 0 && rows.length < 500; i--) if (match(S.items[i])) rows.push(S.items[i]);
+    rows.reverse();
+    for (const it of rows) body.appendChild(row(it));
+    Object.assign(L, { items: S.items, n: S.items.length, filter: logFilter, query: logQuery, t00 });
   }
   if (logFollow) $("logbox").scrollTop = $("logbox").scrollHeight;
 }
