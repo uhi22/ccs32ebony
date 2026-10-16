@@ -13,6 +13,13 @@
 // armed = 0, OWN_TEI = nat_own, broadcast, collect 200 ms, armed = 1. The ping-pong resynchronises on the
 // next V2G frame; the V2G frames of those ~0.3 s are not caught.
 //
+//
+// Passive test mode (diagnostic, off by default; qca7000-transparency plans/plan-alpitronic-abort.md, field
+// matrix item 3): keeps the ping-pong disarmed by writing armed = 0 every 0.5 s. The firmware re-arms itself on
+// the first frame after each of its restarts, hence the repetition. The sniffer then joins as usual (the key and
+// NID pickup does not depend on armed) but never learns TEIs and never switches OWN_TEI: a joined, passive
+// station that catches no V2G. Proof per session in the status block: teiA = teiB = 0, no TCP frames caught.
+//
 // The status block is a contract with the sniffer firmware (pyPLC AR7420 sniffer patch; source of truth:
 // qca7000-transparency plans/interface-ardut-ebony.md): address 0x22c2a8, magic 'EBS1', layout 1, 64 bytes in
 // v146 and 80 bytes from v147. Only fields below the block's size byte are used.
@@ -103,6 +110,25 @@ public:
   bool takeVersionUpdate() { bool u = _versionUpdated; _versionUpdated = false; return u; }
   void printVersions(Print &out) const;
 
+  // Passive test mode (see above)
+  void setPassive(bool on);
+  bool passive() const { return _passive; }
+  bool passiveConfirmed() const { return _passiveOk; }        // the last armed = 0 write was read back as 0
+  uint32_t passiveWrites() const { return _passiveWrites; }   // confirmed writes since switched on
+  uint32_t passiveTimeouts() const { return _passiveTimeouts; }
+  // The ping-pong learned TEIs in this join although passive (a write came too late): not a passive run
+  bool passiveBreached() const { return _passive && _sbValid && (_sb.teiA || _sb.teiB || _sb.pending); }
+  // Diagnostic: start the ping-pong in the middle of a session (serial "arm <charger> <car> <own>"). It
+  // normally learns the TEIs at the SDP request, which is long past then, so the TEIs are written into its
+  // control block (PPCB 0x22c4ec +0x10/+0x11/+0x12, v145..v147 layout, NOT part of the contract), then
+  // armed = 1 and OWN_TEI = charger (the first flip: on its real TEI the sniffer never receives the unicast V2G
+  // frames the ping-pong flips on). Switches the passive mode off.
+  void armLive(uint8_t teiCharger, uint8_t teiCar, uint8_t teiOwn);
+  // Diagnostic (plan matrix items 4/5): hold OWN_TEI at a fixed TEI (e.g. the car's or the charger's) with the
+  // ping-pong disarmed, re-written every 0.5 s (serial "own <tei>"; "own 0" ends it). Implies passive mode.
+  void holdOwnTei(uint8_t tei);
+  uint8_t heldOwnTei() const { return _holdOwn; }
+
 private:
   static constexpr uint32_t QUERY_INTERVAL_MS = 1000;
   static constexpr uint32_t ALIVE_TIMEOUT_MS = 3500;
@@ -119,6 +145,7 @@ private:
   static constexpr uint32_t ADDR_ARMED = 0x22c4f8;           // contract section 5
   static constexpr uint32_t ADDR_OWN_TEI = 0x8bdec;
   static constexpr uint8_t MAX_VERSIONS = 16;
+  static constexpr uint32_t PASSIVE_INTERVAL_MS = 500;
 
   void send(const uint8_t *frame, uint16_t len);
   void forget();
@@ -127,6 +154,8 @@ private:
   void sendWrite(uint32_t addr, uint8_t value, uint32_t now);
   void scanStep(uint32_t now);
   void finishScan();
+  void passiveStep(uint32_t now);
+  bool passiveConfirm(const uint8_t *readBack);
 
   EthSniffer &_eth;
   uint32_t _lastQueryMs = 0;
@@ -171,4 +200,17 @@ private:
   uint8_t _nVersions = 0;
   ModemVersion _versions[MAX_VERSIONS] = {};
   bool _versionUpdated = false;
+
+  enum class HoldWrite : uint8_t { None, Armed, OwnTei, Queued };
+  static constexpr uint32_t ADDR_PPCB_TEIA = 0x22c4fc;  // PPCB +0x10 teiA, +0x11 teiB, +0x12 nat_own
+  struct QueuedWrite { uint32_t addr; uint8_t value; };
+  QueuedWrite _queue[5] = {};
+  uint8_t _queueLen = 0, _queuePos = 0, _queueTries = 0;
+  uint8_t _holdOwn = 0;      // 0 = not holding
+  uint8_t _realOwn = 0;      // the sniffer's real TEI when the hold started
+  bool _holdOwnTurn = false; // alternate armed = 0 and OWN_TEI writes
+  bool _passive = false, _passiveOk = false;
+  HoldWrite _holdWrite = HoldWrite::None;   // which passive write is outstanding
+  uint32_t _lastPassiveMs = 0;
+  uint32_t _passiveWrites = 0, _passiveTimeouts = 0;
 };

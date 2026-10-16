@@ -137,7 +137,7 @@ void LocalModem::scanStep(uint32_t now) {
   uint8_t frame[homeplug::MIN_ETH_FRAME_LEN];
   switch (_scanPhase) {
     case ScanPhase::Queued: {
-      if (_readPending) {
+      if (_readPending || _writePending) {
         return;
       }
       int build = homeplug::snifferBuild(_tag);
@@ -160,6 +160,10 @@ void LocalModem::scanStep(uint32_t now) {
     case ScanPhase::SetOwn:
       if (_writePending && now - _writeSentMs >= WRITE_TIMEOUT_MS) {
         _writePending = false;  // no confirmation: re-arm and stop (never leave the ping-pong paused)
+        if (_passive) {
+          finishScan();         // passive test mode: it stays paused on purpose
+          return;
+        }
         _scanPhase = ScanPhase::Rearm;
         _resumeTries = 1;
         sendWrite(ADDR_ARMED, 1, now);
@@ -167,7 +171,7 @@ void LocalModem::scanStep(uint32_t now) {
       return;
     case ScanPhase::Collect:
       if (now - _collectStartMs >= VERSION_SCAN_MS) {
-        if (_scanPaused) {
+        if (_scanPaused && !_passive) {
           _scanPhase = ScanPhase::Rearm;
           _resumeTries = 1;
           sendWrite(ADDR_ARMED, 1, now);
@@ -207,9 +211,132 @@ void LocalModem::printVersions(Print &out) const {
   }
 }
 
+void LocalModem::setPassive(bool on) {
+  _passive = on;
+  _passiveOk = false;
+  _passiveWrites = 0;
+  _passiveTimeouts = 0;
+  _lastPassiveMs = 0;
+  if (!on && _macKnown && _firmware == Firmware::Sniffer && !_writePending && !_readPending &&
+      _scanPhase == ScanPhase::Idle) {
+    _holdWrite = HoldWrite::None;
+    uint8_t frame[homeplug::MIN_ETH_FRAME_LEN];  // re-arm; the ping-pong resynchronises on the next V2G frame
+    send(frame, homeplug::composeSnifferWriteReq(frame, _mac, _eth.ownMac(), ADDR_ARMED, 1));
+  }
+  Serial.printf("Modem: passive test mode %s\n", on ? "ON (ping-pong held disarmed)" : "off (ping-pong re-armed)");
+}
+
+// Passive test mode: armed = 0 every PASSIVE_INTERVAL_MS. If the ping-pong already moved OWN_TEI away from the
+// sniffer's real TEI (a write came too late), the next write puts it back.
+void LocalModem::armLive(uint8_t teiCharger, uint8_t teiCar, uint8_t teiOwn) {
+  _passive = false;
+  _passiveOk = false;
+  _queue[0] = {ADDR_PPCB_TEIA, teiCharger};
+  _queue[1] = {ADDR_PPCB_TEIA + 1, teiCar};
+  _queue[2] = {ADDR_PPCB_TEIA + 2, teiOwn};
+  _queue[3] = {ADDR_ARMED, 1};
+  _queue[4] = {ADDR_OWN_TEI, teiCharger};  // first flip: the hook only sees unicast V2G once OWN_TEI is foreign
+  _queueLen = 5;
+  _queuePos = 0;
+  _queueTries = 0;
+  Serial.printf("Modem: arming the ping-pong live: charger %u, car %u, own %u (passive mode off)\n", teiCharger,
+                teiCar, teiOwn);
+}
+
+void LocalModem::holdOwnTei(uint8_t tei) {
+  _holdOwn = tei;
+  if (tei) {
+    if (!_realOwn && joined()) {
+      _realOwn = _nwInfo.ownTei;
+    }
+    _passive = true;
+    _passiveOk = false;
+    Serial.printf("Modem: holding OWN_TEI at %u (ping-pong disarmed, real TEI %u)\n", tei, _realOwn);
+  } else if (_realOwn) {
+    _queue[0] = {ADDR_OWN_TEI, _realOwn};
+    _queueLen = 1;
+    _queuePos = 0;
+    _queueTries = 0;
+    Serial.printf("Modem: OWN_TEI hold ended, back to the real TEI %u\n", _realOwn);
+    _realOwn = 0;
+  }
+}
+
+void LocalModem::passiveStep(uint32_t now) {
+  if (_holdWrite != HoldWrite::None) {
+    if (now - _writeSentMs >= WRITE_TIMEOUT_MS) {
+      _writePending = false;
+      if (_holdWrite == HoldWrite::Queued && ++_queueTries >= RESUME_TRIES) {
+        Serial.printf("Modem: live arm, write %u NOT confirmed, giving up\n", _queuePos);
+        _queueLen = 0;
+      }
+      _holdWrite = HoldWrite::None;
+      _passiveOk = false;
+      _passiveTimeouts++;
+    }
+    return;
+  }
+  int build = homeplug::snifferBuild(_tag);
+  if (_queuePos < _queueLen && !_readPending && !_writePending && _scanPhase == ScanPhase::Idle && _macKnown &&
+      _firmware == Firmware::Sniffer && build >= BUILD_MIN && build <= BUILD_MAX) {
+    _holdWrite = HoldWrite::Queued;
+    sendWrite(_queue[_queuePos].addr, _queue[_queuePos].value, now);
+    return;
+  }
+  if (!_passive || _readPending || _writePending || _scanPhase != ScanPhase::Idle || !_macKnown ||
+      _firmware != Firmware::Sniffer || build < BUILD_MIN || build > BUILD_MAX ||
+      now - _lastPassiveMs < PASSIVE_INTERVAL_MS) {
+    return;
+  }
+  _lastPassiveMs = now;
+  if (_holdOwn && _passiveOk && (_holdOwnTurn = !_holdOwnTurn)) {
+    _holdWrite = HoldWrite::OwnTei;
+    sendWrite(ADDR_OWN_TEI, _holdOwn, now);
+  } else if (_passiveOk && _sbValid && _sb.natOwn != 0 && _sb.ownTei != _sb.natOwn) {
+    _holdWrite = HoldWrite::OwnTei;
+    sendWrite(ADDR_OWN_TEI, _sb.natOwn, now);
+  } else {
+    _holdWrite = HoldWrite::Armed;
+    sendWrite(ADDR_ARMED, 0, now);
+  }
+}
+
+// Confirmation of a passive write; the reply carries the 16 bytes from the written address
+bool LocalModem::passiveConfirm(const uint8_t *readBack) {
+  HoldWrite w = _holdWrite;
+  _holdWrite = HoldWrite::None;
+  if (w == HoldWrite::Armed) {
+    bool ok = readBack[0] == 0;
+    if (ok && !_passiveOk) {
+      Serial.println("Modem: passive test mode, ping-pong disarmed (confirmed)");
+    }
+    _passiveOk = ok;
+    _passiveWrites++;
+  } else if (w == HoldWrite::Queued) {
+    Serial.printf("Modem: live arm, 0x%06lx = %u (read back %u)\n", (unsigned long)_queue[_queuePos].addr,
+                  _queue[_queuePos].value, readBack[0]);
+    _queueTries = 0;
+    if (++_queuePos >= _queueLen) {
+      Serial.println("Modem: live arm done, ping-pong armed");
+    }
+  } else if (w == HoldWrite::OwnTei && _holdOwn) {
+    static uint8_t last = 0;
+    if (readBack[0] != last) {
+      Serial.printf("Modem: OWN_TEI held at %u\n", readBack[0]);
+      last = readBack[0];
+    }
+  } else if (w == HoldWrite::OwnTei) {
+    Serial.printf("Modem: passive test mode, OWN_TEI put back to %u\n", readBack[0]);
+  }
+  return true;
+}
+
 void LocalModem::cycle(uint32_t now) {
   if (_scanPhase != ScanPhase::Idle) {
     scanStep(now);
+  }
+  if (_eth.linkUp()) {
+    passiveStep(now);
   }
 
   // Status block: its own pace, one "RDM1" request outstanding at a time
@@ -219,7 +346,7 @@ void LocalModem::cycle(uint32_t now) {
     _blockState = BlockState::NoAnswer;
     _blockUpdated = true;
   }
-  if (!_readPending && _scanPhase == ScanPhase::Idle && _eth.linkUp() && _macKnown &&
+  if (!_readPending && !_writePending && _scanPhase == ScanPhase::Idle && _eth.linkUp() && _macKnown &&
       _firmware == Firmware::Sniffer && now - _lastBlockStartMs >= BLOCK_INTERVAL_MS) {
     int build = homeplug::snifferBuild(_tag);
     if (build >= BUILD_MIN && build <= BUILD_MAX) {  // outside the contract range: read nothing
@@ -274,6 +401,9 @@ bool LocalModem::handleFrame(const uint8_t *frame, uint16_t len, uint32_t now) {
   if (_writePending && _macKnown && memcmp(frame + 6, _mac, 6) == 0 && homeplug::parseSnifferCnf(frame, len, wr)) {
     _writePending = false;
     _lastAnswerMs = now;
+    if (_holdWrite != HoldWrite::None) {
+      return passiveConfirm(wr);
+    }
     uint8_t frame2[homeplug::MIN_ETH_FRAME_LEN];
     if (_scanPhase == ScanPhase::Disarm) {
       _scanPhase = ScanPhase::SetOwn;
@@ -427,6 +557,11 @@ void LocalModem::printSniffer(Print &out) const {
   out.printf("Sniffer status block: %s, %lu read, %lu timeouts, %lu modem restarts seen\n",
              STATE[(int)_blockState], (unsigned long)_blockReads, (unsigned long)_blockTimeouts,
              (unsigned long)_restarts);
+  if (_passive) {
+    out.printf("  PASSIVE TEST MODE: disarmed %s, %lu writes, %lu timeouts%s\n",
+               _passiveOk ? "(confirmed)" : "NOT confirmed", (unsigned long)_passiveWrites,
+               (unsigned long)_passiveTimeouts, passiveBreached() ? ", BREACHED: TEIs learned in this join" : "");
+  }
   if (!_sbValid) {
     return;
   }

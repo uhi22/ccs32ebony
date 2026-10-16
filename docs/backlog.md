@@ -86,6 +86,14 @@ Planned work, roughly in order. Check an item off with a one-line result; do not
   Clear button (serial `versions clear`) empties it. Verified (2026-10-11): with the Foccci joined
   and no session running, one read got all four modems (both sniffers, charger 1.4.0.20, Foccci
   QCA7005 1.1.0.730).
+- [x] **Diagnostics for the Alpitronic field tests (2026-10-14, qca7000-transparency `backlog-0142`).**
+  Passive test mode (armed = 0 every 0.5 s; Sniffer tab card with breach check; serial `passive on|off`),
+  serial `arm <charger> <car> <own>` (PPCB TEIs + armed = 1) and `own <tei>|0` (hold OWN_TEI). Used in the
+  field the same day: passive 3/3 stable, OWN_TEI held at the car or the charger TEI -> kick-out.
+- [ ] **Passive mode is ON by default (`SNIFFER_PASSIVE_DEFAULT 1`) - a diagnostic default.** Set it to 0 for
+  normal sniffing once the Alpitronic tests are over (the box then catches V2G again without a tap).
+- [ ] `arm` must also write OWN_TEI = charger TEI as the first flip; without it the sniffer never receives the
+  unicast V2G frames the ping-pong flips on (field 2026-10-14: armed, 0 flips).
 - [ ] Mock box: replay a recorded session for UI development without hardware.
 - [ ] Field test with a real car and charger (so far: bench sessions with pyPLC only).
 - [ ] **Session tab blocks tab switching during a fast charge (field 2026-10-12, Tesla Supercharger).**

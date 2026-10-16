@@ -323,6 +323,11 @@ input[type=search] { font: inherit; padding: 6px 10px; border-radius: 999px; bor
         <p class="muted" style="margin-bottom:0">Messages whose stock handler space the sniffer patch reuses are
         dropped and counted (from firmware v147). Older builds restarted on them.</p></div>
       <div class="card"><h2>Sniffer firmware</h2><dl id="s-fw"></dl></div>
+      <div class="card"><h2>Passive test mode</h2><dl id="s-passive"></dl>
+        <p><button class="icon-btn" id="s-passive-btn">Passive: switch on</button></p>
+        <p class="muted" style="margin-bottom:0">Diagnostic. Keeps the sniffer joined but stops its ping-pong (no
+        TEI learning, no TEI switching): it catches no V2G. Switch on before plugging in; it is held across modem
+        restarts until switched off. A valid passive session shows no learned TEIs.</p></div>
     </div>
   </section>
 
@@ -1024,6 +1029,13 @@ function renderSniffer() {
     noAnswer: "no answer to the last read" };
   $("s-note").textContent = !sn ? "No data yet." : sn.state === "valid" ? "" : "Status block: " + (STATE[sn.state] || sn.state)
     + (sn.state === "off" && m && m.fw === "sniffer" ? " – this sniffer build has no status block (needs v146 or newer)." : "");
+  const p = sn && sn.passive;
+  $("s-passive-btn").textContent = p && p.on ? "Passive: switch off" : "Passive: switch on";
+  dl($("s-passive"), !p ? [] : !p.on ? [["State", "off (normal sniffing)"]] : [
+    ["State", p.ok ? "ON, ping-pong held disarmed" : "ON, disarm NOT confirmed yet", p.ok ? "" : "warnv"],
+    ["This join", p.breached ? "BREACHED: TEIs learned, not a passive run" : "passive (no TEIs learned)", p.breached ? "warnv" : ""],
+    ["Writes / timeouts", p.writes + " / " + p.timeouts, p.timeouts > 0 ? "warnv" : ""],
+  ]);
   const b = sn && sn.b;
   if (!b) {
     for (const id of ["s-tei", "s-time", "s-join", "s-rej", "s-fw"]) clear($(id));
@@ -1083,6 +1095,10 @@ function renderSniffer() {
 // Modem versions: read on demand (one GET_SW broadcast); roles from the station list and the
 // sniffer's learned car TEI
 $("n-readver").onclick = () => { if (socket) { try { socket.send('{"t":"readVersions"}'); } catch (e) {} } };
+$("s-passive-btn").onclick = () => {
+  const p = S.sniffer && S.sniffer.passive, on = !(p && p.on);
+  if (socket) { try { socket.send('{"t":"passive","on":' + on + '}'); } catch (e) {} }
+};
 $("n-clearver").onclick = () => { if (socket) { try { socket.send('{"t":"clearVersions"}'); } catch (e) {} } };
 function renderVersions() {
   const v = S.versions, m = S.status && S.status.modem, b = S.sniffer && S.sniffer.b;

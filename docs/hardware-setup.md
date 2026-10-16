@@ -66,7 +66,13 @@ python tools/serial_log.py <port> -t 5 -s stat -s "log 0"
 
 Serial commands: `log 0|1` (one line per frame on/off), `hex <n>` (also dump the first n bytes of
 each frame), `stat` (summary line now), `modem` (local modem status), `modem retag` (ask for the
-sniffer build tag again), `session` (print the session state as the UI gets it). A summary
+sniffer build tag again), `session` (print the session state as the UI gets it), `sniffer` (status block),
+`versions` / `versions clear` (version scan). Diagnostics for the sniffer firmware (v145..v147 only, see
+`LocalModem` in `local_modem.h`): `passive on|off` (hold the ping-pong disarmed; **on by default** while
+`SNIFFER_PASSIVE_DEFAULT` is 1), `arm <charger> <car> <own>` (start the ping-pong mid-session; lacks the first
+OWN_TEI flip, so it does not flip yet), `own <tei>` / `own 0` (hold OWN_TEI at a fixed TEI / back to the real
+one). A held OWN_TEI survives an ebony reset and is re-written after a modem restart: power-cycle the modem
+(and reset ebony) to get rid of it. A summary
 line `S …` is printed every second, and decoded messages (`D …`) are always printed.
 
 Settings: copy `ebony_config.example.h` to `ebony_config.h` and edit it. Without the copy, the

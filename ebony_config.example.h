@@ -18,3 +18,8 @@
 // 1: captive portal - the UI pops up after joining, but iOS shows it in a sign-in sheet that
 //    can only be cancelled, which leaves the network.
 #define WIFI_CAPTIVE_PORTAL 0
+
+// Sniffer passive test mode at start (diagnostic, LocalModem::setPassive): 1 = the sniffer's ping-pong is held
+// disarmed from power-on - it joins but catches no V2G. For the Alpitronic field tests (qca7000-transparency
+// plans/plan-alpitronic-abort.md, matrix item 3). Set 0 for normal sniffing; the Sniffer tab can switch it either way.
+#define SNIFFER_PASSIVE_DEFAULT 1

@@ -14,6 +14,9 @@
 #ifndef WIFI_CAPTIVE_PORTAL  // older local configs
 #define WIFI_CAPTIVE_PORTAL 0
 #endif
+#ifndef SNIFFER_PASSIVE_DEFAULT  // older local configs
+#define SNIFFER_PASSIVE_DEFAULT 1
+#endif
 
 #include "eth_sniff.h"
 #include "homeplug.h"
@@ -336,6 +339,10 @@ static bool buildSniffer(char *buf, size_t size) {
   if (modem.modemRestarts() > 0) {
     j.raw(",\"lastRestart\":%lu", (unsigned long)modem.lastRestartUptimeMs());
   }
+  j.raw(",\"passive\":{\"on\":%s,\"ok\":%s,\"writes\":%lu,\"timeouts\":%lu,\"breached\":%s}",
+        modem.passive() ? "true" : "false", modem.passiveConfirmed() ? "true" : "false",
+        (unsigned long)modem.passiveWrites(), (unsigned long)modem.passiveTimeouts(),
+        modem.passiveBreached() ? "true" : "false");
   if (modem.blockReads() > 0) {
     const SnifferStatus &b = modem.sniffer();
     j.raw(",\"b\":{\"build\":%u,\"size\":%u,\"up\":%lu,\"seq\":%lu,\"tJoin\":%lu,\"tSdp\":%lu,\"tLearned\":%lu,"
@@ -358,7 +365,7 @@ static bool buildSniffer(char *buf, size_t size) {
 }
 
 static void sendSniffer(int id) {
-  char buf[768];
+  char buf[896];
   if (buildSniffer(buf, sizeof(buf))) {
     sendTo(id, buf);
   } else {
@@ -458,6 +465,10 @@ static void onWebText(uint8_t id, const char *text) {
   if (strstr(text, "\"t\":\"clearVersions\"") != nullptr) {
     modem.clearVersions();
   }
+  if (strstr(text, "\"t\":\"passive\"") != nullptr) {
+    modem.setPassive(strstr(text, "\"on\":true") != nullptr);
+    sendSniffer(-1);
+  }
   // "ping" only keeps the connection alive
 }
 
@@ -482,6 +493,21 @@ static void handleCommand(String cmd) {
     Serial.println("Modem versions: list cleared");
   } else if (cmd == "sniffer") {
     modem.printSniffer(Serial);
+  } else if (cmd.startsWith("arm ")) {
+    int a = 0, b = 0, o = 0;
+    if (sscanf(cmd.c_str() + 4, "%d %d %d", &a, &b, &o) == 3 && a > 0 && a < 255 && b > 0 && b < 255 && o > 0 &&
+        o < 255) {
+      modem.armLive((uint8_t)a, (uint8_t)b, (uint8_t)o);
+    } else {
+      Serial.println("usage: arm <charger TEI> <car TEI> <own TEI>");
+    }
+  } else if (cmd.startsWith("own ")) {
+    int t = cmd.substring(4).toInt();
+    if (t >= 0 && t < 255) {
+      modem.holdOwnTei((uint8_t)t);
+    }
+  } else if (cmd == "passive on" || cmd == "passive off") {
+    modem.setPassive(cmd.endsWith("on"));
   } else if (cmd == "modem retag") {
     modem.retag();
     Serial.println("Modem: asking for the sniffer tag again");
@@ -493,7 +519,7 @@ static void handleCommand(String cmd) {
       Serial.println("session message truncated");
     }
   } else if (cmd.length() > 0) {
-    Serial.println("commands: log 0|1, hex <n>, stat, modem, modem retag, sniffer, versions, versions clear, session");
+    Serial.println("commands: log 0|1, hex <n>, stat, modem, modem retag, sniffer, versions, versions clear, passive on|off, arm <charger> <car> <own>, own <tei>|0, session");
   }
 }
 
@@ -520,6 +546,9 @@ void setup() {
   Serial.printf("reset reason %d, free heap %lu\n", (int)esp_reset_reason(),
                 (unsigned long)ESP.getFreeHeap());
 
+  if (SNIFFER_PASSIVE_DEFAULT) {
+    modem.setPassive(true);  // diagnostic default for the Alpitronic field tests, see ebony_config.example.h
+  }
   if (eth.begin()) {
     Serial.print("Ethernet started, promiscuous, own MAC ");
     printMac(eth.ownMac());
