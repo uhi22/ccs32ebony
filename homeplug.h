@@ -81,6 +81,15 @@ uint16_t composeSnifferReadReq(uint8_t *frame, const uint8_t dst[6], const uint8
 uint16_t composeSnifferWriteReq(uint8_t *frame, const uint8_t dst[6], const uint8_t src[6], uint32_t addr,
                                 uint8_t value);
 
+// GET_SW.REQ with the "WRM1" pattern, width 4: writes the 32-bit `value` (little endian) at addr and answers
+// with the 16 bytes there. Used for the OWN_TEI consumer mask (contract section 6), whose slots are 4-byte words.
+uint16_t composeSnifferWriteReq32(uint8_t *frame, const uint8_t dst[6], const uint8_t src[6], uint32_t addr,
+                                  uint32_t value);
+
+// VS_RS_DEV (0xA01C): a vendor device soft reset. The modem reloads its firmware (seq restarts); used to test the
+// mask re-apply on the bench without a charging session. Harmless; the modem is back in a few seconds.
+uint16_t composeDeviceResetReq(uint8_t *frame, const uint8_t dst[6], const uint8_t src[6]);
+
 // The 16 content bytes (offset 23) of a sniffer GET_SW.CNF (answer to "GST1" or "RDM1").
 // Only the MMTYPE is checked, as for the tag. Returns true if frame is a GET_SW.CNF.
 bool parseSnifferCnf(const uint8_t *frame, uint16_t len, uint8_t out[16]);

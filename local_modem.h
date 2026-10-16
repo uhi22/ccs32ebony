@@ -129,7 +129,18 @@ public:
   void holdOwnTei(uint8_t tei);
   uint8_t heldOwnTei() const { return _holdOwn; }
 
+  // OWN_TEI consumer mask (contract section 6, v152+; refused on older builds). The firmware bakes all 41 sites to "real"; these flip
+  // individual sites (or all) back to "follow" (the held/foreign TEI) for field bisection of the Alpitronic abort.
+  // The override is a bit set (bit = "held follow"); it is re-applied after every modem restart.
+  static constexpr uint8_t TEI_SITES = 41;
+  void teiMaskSite(uint8_t site, bool follow);   // one site
+  void teiMaskAll(bool follow);                  // all 41
+  void teiMaskShow(Print &out) const;
+  uint64_t teiMask() const { return _teiMask; }
+  void resetModem();                             // VS_RS_DEV soft reset (seq restarts; triggers mask re-apply)
+
 private:
+  bool teiMaskAllowed() const;                   // build >= TEI_MASK_MIN_BUILD, else prints why and refuses
   static constexpr uint32_t QUERY_INTERVAL_MS = 1000;
   static constexpr uint32_t ALIVE_TIMEOUT_MS = 3500;
   static constexpr uint32_t FORGET_TIMEOUT_MS = 10000;  // re-learn the MAC (modem swapped/reset)
@@ -139,6 +150,8 @@ private:
   static constexpr uint32_t BLOCK_ADDR = 0x22c2a8;
   static constexpr uint8_t BLOCK_READS = 5;                 // 80 bytes
   static constexpr int BUILD_MIN = 146, BUILD_MAX = 199;    // contract range
+  // v152+ only: before it, nat_own is not seeded in passive mode, so "real" sites would read TEI 0 (no association)
+  static constexpr int TEI_MASK_MIN_BUILD = 152;
   static constexpr uint32_t VERSION_SCAN_MS = 200;          // answers come within ~100 ms
   static constexpr uint32_t WRITE_TIMEOUT_MS = 300;
   static constexpr uint8_t RESUME_TRIES = 5;
@@ -151,7 +164,10 @@ private:
   void forget();
   void sendBlockRead();
   void decodeBlock();
-  void sendWrite(uint32_t addr, uint8_t value, uint32_t now);
+  void sendWrite(uint32_t addr, uint32_t value, uint8_t width, uint32_t now);
+  void sendWrite(uint32_t addr, uint8_t value, uint32_t now) { sendWrite(addr, (uint32_t)value, (uint8_t)1, now); }
+  void queueMaskWrite(uint8_t site, bool follow);   // append one slot write to _queue
+  void reapplyTeiMask();                            // re-queue the held-follow overrides after a restart
   void scanStep(uint32_t now);
   void finishScan();
   void passiveStep(uint32_t now);
@@ -203,9 +219,13 @@ private:
 
   enum class HoldWrite : uint8_t { None, Armed, OwnTei, Queued };
   static constexpr uint32_t ADDR_PPCB_TEIA = 0x22c4fc;  // PPCB +0x10 teiA, +0x11 teiB, +0x12 nat_own
-  struct QueuedWrite { uint32_t addr; uint8_t value; };
-  QueuedWrite _queue[5] = {};
+  static constexpr uint32_t TEI_SLOT_REAL = 0x0022c4ea;   // slot value -> site reads nat_own (baked default)
+  static constexpr uint32_t TEI_SLOT_FOLLOW = 0x0008bdd8;  // slot value -> site reads OWN_TEI (the override)
+  static const uint32_t TEI_SLOT_ADDR[TEI_SITES];          // the 41 slot write addresses (local_modem.cpp)
+  struct QueuedWrite { uint32_t addr; uint32_t value; uint8_t width; };
+  QueuedWrite _queue[TEI_SITES + 8] = {};               // up to 41 mask writes, plus headroom for the live-arm queue
   uint8_t _queueLen = 0, _queuePos = 0, _queueTries = 0;
+  uint64_t _teiMask = 0;     // bit i set = site i held "follow" (overriding the baked "real"); 0 = all real
   uint8_t _holdOwn = 0;      // 0 = not holding
   uint8_t _realOwn = 0;      // the sniffer's real TEI when the hold started
   bool _holdOwnTurn = false; // alternate armed = 0 and OWN_TEI writes

@@ -90,8 +90,9 @@ Planned work, roughly in order. Check an item off with a one-line result; do not
   Passive test mode (armed = 0 every 0.5 s; Sniffer tab card with breach check; serial `passive on|off`),
   serial `arm <charger> <car> <own>` (PPCB TEIs + armed = 1) and `own <tei>|0` (hold OWN_TEI). Used in the
   field the same day: passive 3/3 stable, OWN_TEI held at the car or the charger TEI -> kick-out.
-- [ ] **Passive mode is ON by default (`SNIFFER_PASSIVE_DEFAULT 1`) - a diagnostic default.** Set it to 0 for
+- [x] **Passive mode is ON by default (`SNIFFER_PASSIVE_DEFAULT 1`) - a diagnostic default.** Set it to 0 for
   normal sniffing once the Alpitronic tests are over (the box then catches V2G again without a tap).
+  **Done 2026-10-16:** default is 0 (normal sniffing) - the field build for the Alpitronic must capture V2G.
 - [ ] `arm` must also write OWN_TEI = charger TEI as the first flip; without it the sniffer never receives the
   unicast V2G frames the ping-pong flips on (field 2026-10-14: armed, 0 flips).
 - [ ] Mock box: replay a recorded session for UI development without hardware.

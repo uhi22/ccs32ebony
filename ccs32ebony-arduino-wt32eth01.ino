@@ -15,7 +15,7 @@
 #define WIFI_CAPTIVE_PORTAL 0
 #endif
 #ifndef SNIFFER_PASSIVE_DEFAULT  // older local configs
-#define SNIFFER_PASSIVE_DEFAULT 1
+#define SNIFFER_PASSIVE_DEFAULT 0
 #endif
 
 #include "eth_sniff.h"
@@ -343,6 +343,7 @@ static bool buildSniffer(char *buf, size_t size) {
         modem.passive() ? "true" : "false", modem.passiveConfirmed() ? "true" : "false",
         (unsigned long)modem.passiveWrites(), (unsigned long)modem.passiveTimeouts(),
         modem.passiveBreached() ? "true" : "false");
+  j.raw(",\"teiMask\":%llu", (unsigned long long)modem.teiMask());  // bit set = site held FOLLOW; 0 = all real
   if (modem.blockReads() > 0) {
     const SnifferStatus &b = modem.sniffer();
     j.raw(",\"b\":{\"build\":%u,\"size\":%u,\"up\":%lu,\"seq\":%lu,\"tJoin\":%lu,\"tSdp\":%lu,\"tLearned\":%lu,"
@@ -508,6 +509,21 @@ static void handleCommand(String cmd) {
     }
   } else if (cmd == "passive on" || cmd == "passive off") {
     modem.setPassive(cmd.endsWith("on"));
+  } else if (cmd == "tshow") {
+    modem.teiMaskShow(Serial);
+  } else if (cmd == "modemreset") {
+    modem.resetModem();
+  } else if (cmd == "tmask real" || cmd == "tmask follow") {
+    modem.teiMaskAll(cmd.endsWith("follow"));
+  } else if (cmd.startsWith("tsite ")) {
+    int n = -1;
+    char kind[8] = "";
+    if (sscanf(cmd.c_str() + 6, "%d %7s", &n, kind) == 2 && n >= 0 && n < LocalModem::TEI_SITES &&
+        (!strcmp(kind, "real") || !strcmp(kind, "follow"))) {
+      modem.teiMaskSite((uint8_t)n, !strcmp(kind, "follow"));
+    } else {
+      Serial.printf("usage: tsite <0..%u> real|follow\n", LocalModem::TEI_SITES - 1);
+    }
   } else if (cmd == "modem retag") {
     modem.retag();
     Serial.println("Modem: asking for the sniffer tag again");
@@ -519,7 +535,7 @@ static void handleCommand(String cmd) {
       Serial.println("session message truncated");
     }
   } else if (cmd.length() > 0) {
-    Serial.println("commands: log 0|1, hex <n>, stat, modem, modem retag, sniffer, versions, versions clear, passive on|off, arm <charger> <car> <own>, own <tei>|0, session");
+    Serial.println("commands: log 0|1, hex <n>, stat, modem, modem retag, sniffer, versions, versions clear, passive on|off, arm <charger> <car> <own>, own <tei>|0, tshow, tmask real|follow, tsite <n> real|follow, modemreset, session");
   }
 }
 
@@ -547,7 +563,7 @@ void setup() {
                 (unsigned long)ESP.getFreeHeap());
 
   if (SNIFFER_PASSIVE_DEFAULT) {
-    modem.setPassive(true);  // diagnostic default for the Alpitronic field tests, see ebony_config.example.h
+    modem.setPassive(true);  // diagnostic only (Alpitronic matrix tests), see ebony_config.example.h
   }
   if (eth.begin()) {
     Serial.print("Ethernet started, promiscuous, own MAC ");

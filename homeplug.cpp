@@ -5,6 +5,7 @@ namespace homeplug {
 const uint8_t MAC_LOCAL_MANAGEMENT[6] = {0x00, 0xB0, 0x52, 0x00, 0x00, 0x01};
 
 static constexpr uint16_t MMTYPE_GET_SW = 0xA000;
+static constexpr uint16_t MMTYPE_VS_RS_DEV = 0xA01C;   // vendor device soft reset (reloads the firmware)
 static constexpr uint16_t MMTYPE_VS_NW_INFO = 0xA038;
 
 static constexpr uint16_t MMTYPE_REQ = 0x0000;
@@ -171,6 +172,25 @@ uint16_t composeSnifferWriteReq(uint8_t *frame, const uint8_t dst[6], const uint
   }
   frame[ofs + 8] = 1;      // width: one byte (offset 28)
   frame[ofs + 9] = value;  // offset 29
+  return MIN_ETH_FRAME_LEN;
+}
+
+uint16_t composeSnifferWriteReq32(uint8_t *frame, const uint8_t dst[6], const uint8_t src[6], uint32_t addr,
+                                  uint32_t value) {
+  uint8_t ofs = composeVendorHeader(frame, dst, src, MMTYPE_GET_SW | MMTYPE_REQ);
+  memcpy(&frame[ofs], "WRM1", 4);
+  for (uint8_t i = 0; i < 4; i++) {
+    frame[ofs + 4 + i] = (addr >> (8 * i)) & 0xFF;   // address, little endian, offset 24
+  }
+  frame[ofs + 8] = 4;                                 // width: four bytes (offset 28)
+  for (uint8_t i = 0; i < 4; i++) {
+    frame[ofs + 9 + i] = (value >> (8 * i)) & 0xFF;   // value, little endian, offset 29..32
+  }
+  return MIN_ETH_FRAME_LEN;
+}
+
+uint16_t composeDeviceResetReq(uint8_t *frame, const uint8_t dst[6], const uint8_t src[6]) {
+  composeVendorHeader(frame, dst, src, MMTYPE_VS_RS_DEV | MMTYPE_REQ);   // empty payload, 60-byte frame
   return MIN_ETH_FRAME_LEN;
 }
 

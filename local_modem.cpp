@@ -91,6 +91,7 @@ void LocalModem::decodeBlock() {
     _lastRestartUptimeMs = n.uptimeMs - n.seq * 100;
     Serial.printf("Modem: sniffer restarted (seq %lu -> %lu), at modem uptime %lu s\n",
                   (unsigned long)_sb.seq, (unsigned long)n.seq, (unsigned long)(_lastRestartUptimeMs / 1000));
+    reapplyTeiMask();  // the restart reloaded the image = all sites back to the baked "real"; re-apply our follows
   }
   _sb = n;
   _sbValid = true;
@@ -118,11 +119,116 @@ void LocalModem::clearVersions() {
   _versionUpdated = true;
 }
 
-void LocalModem::sendWrite(uint32_t addr, uint8_t value, uint32_t now) {
+void LocalModem::sendWrite(uint32_t addr, uint32_t value, uint8_t width, uint32_t now) {
   uint8_t frame[homeplug::MIN_ETH_FRAME_LEN];
-  send(frame, homeplug::composeSnifferWriteReq(frame, _mac, _eth.ownMac(), addr, value));
+  if (width == 4) {
+    send(frame, homeplug::composeSnifferWriteReq32(frame, _mac, _eth.ownMac(), addr, value));
+  } else {
+    send(frame, homeplug::composeSnifferWriteReq(frame, _mac, _eth.ownMac(), addr, (uint8_t)value));
+  }
   _writePending = true;
   _writeSentMs = now;
+}
+
+// The 41 OWN_TEI consumer slot WRITE addresses (contract section 6; ITCM slots at their run address).
+// Generated/validated by tools/gen_owntei_mask_table.py; keep in sync with it.
+const uint32_t LocalModem::TEI_SLOT_ADDR[LocalModem::TEI_SITES] = {
+    0x217d54, 0x217ec4, 0x217f04,                                          // A MME TX header (0-2)
+    0x2189a8, 0x219004, 0x2192b0,                                          // B beacon STEI (3-5)
+    0x1e64,                                                                // C TX FC template, ITCM run (6)
+    0x10a50, 0x10ba4, 0x12588,                                            // D MAC per-peer, ITCM run (7-9)
+    0x22ce80, 0x237bc8,                                                    // E 0xA0DA reply (10-11)
+    0x2400a0, 0x2406a4, 0x240a64, 0x240b10, 0x240ca4, 0x240da8,            // F PowerSave (12-17)
+    0x23f0d4, 0x23f240, 0x23f434, 0x23f4d0, 0x23f540,                      // G Ethernet switch (18-22)
+    0x21f1f0, 0x226c84, 0x22d678, 0x2418dc, 0x241b18, 0x241c08, 0x2456ac,  // H other compares (23-40)
+    0x245b4c, 0x2562e4, 0x257018, 0x2573c0, 0x258778, 0x259a60, 0x259fa4,
+    0x25a7d4, 0x25dc74, 0x25de0c, 0x25f014,
+};
+
+void LocalModem::queueMaskWrite(uint8_t site, bool follow) {
+  if (site >= TEI_SITES || _queueLen >= sizeof(_queue) / sizeof(_queue[0])) {
+    return;
+  }
+  _queue[_queueLen++] = {TEI_SLOT_ADDR[site], follow ? TEI_SLOT_FOLLOW : TEI_SLOT_REAL, 4};
+}
+
+bool LocalModem::teiMaskAllowed() const {
+  int build = homeplug::snifferBuild(_tag);
+  if (build >= TEI_MASK_MIN_BUILD && build <= BUILD_MAX) {
+    return true;
+  }
+  Serial.printf("tei mask: needs sniffer build >= %d (have %d), nothing written\n", TEI_MASK_MIN_BUILD, build);
+  return false;
+}
+
+void LocalModem::teiMaskSite(uint8_t site, bool follow) {
+  if (!teiMaskAllowed()) {
+    return;
+  }
+  if (site >= TEI_SITES) {
+    Serial.printf("tei mask: site %u out of range (0..%u)\n", site, TEI_SITES - 1);
+    return;
+  }
+  if (follow) {
+    _teiMask |= (uint64_t)1 << site;
+  } else {
+    _teiMask &= ~((uint64_t)1 << site);
+  }
+  _queueLen = _queuePos = _queueTries = 0;
+  queueMaskWrite(site, follow);
+  Serial.printf("tei mask: site %u -> %s (mask now 0x%010llx)\n", site, follow ? "follow" : "real",
+                (unsigned long long)_teiMask);
+}
+
+void LocalModem::teiMaskAll(bool follow) {
+  if (!teiMaskAllowed()) {
+    return;
+  }
+  _teiMask = follow ? (((uint64_t)1 << TEI_SITES) - 1) : 0;
+  _queueLen = _queuePos = _queueTries = 0;
+  for (uint8_t i = 0; i < TEI_SITES; i++) {
+    queueMaskWrite(i, follow);
+  }
+  Serial.printf("tei mask: all 41 -> %s (queued %u writes)\n", follow ? "follow" : "real", _queueLen);
+}
+
+void LocalModem::reapplyTeiMask() {
+  if (!_teiMask) {
+    return;  // no override held; the baked all-real default is already in place after the restart
+  }
+  if (!teiMaskAllowed()) {
+    return;
+  }
+  _queueLen = _queuePos = _queueTries = 0;
+  for (uint8_t i = 0; i < TEI_SITES; i++) {
+    if (_teiMask & ((uint64_t)1 << i)) {
+      queueMaskWrite(i, true);
+    }
+  }
+  Serial.printf("tei mask: re-applying %u held-follow site(s) after the restart\n", _queueLen);
+}
+
+void LocalModem::resetModem() {
+  if (!_macKnown) {
+    Serial.println("modemreset: modem MAC not known yet");
+    return;
+  }
+  uint8_t frame[homeplug::MIN_ETH_FRAME_LEN];
+  send(frame, homeplug::composeDeviceResetReq(frame, _mac, _eth.ownMac()));
+  Serial.println("modemreset: VS_RS_DEV sent (modem reloads firmware; seq will restart)");
+}
+
+void LocalModem::teiMaskShow(Print &out) const {
+  out.printf("OWN_TEI mask: 0x%010llx (bit set = held FOLLOW; 0 = all baked REAL). Firmware build %u.\n",
+             (unsigned long long)_teiMask, _sbValid ? _sb.build : 0);
+  static const char *grp[TEI_SITES] = {"A", "A", "A", "B", "B", "B", "C", "D", "D", "D", "E", "E",
+                                       "F", "F", "F", "F", "F", "F", "G", "G", "G", "G", "G",
+                                       "H", "H", "H", "H", "H", "H", "H", "H", "H", "H", "H", "H",
+                                       "H", "H", "H", "H", "H", "H"};
+  for (uint8_t i = 0; i < TEI_SITES; i++) {
+    bool follow = _teiMask & ((uint64_t)1 << i);
+    out.printf("  %2u %s 0x%06lx %s\n", i, grp[i], (unsigned long)TEI_SLOT_ADDR[i], follow ? "follow" : "real");
+  }
 }
 
 void LocalModem::finishScan() {
@@ -231,11 +337,11 @@ void LocalModem::setPassive(bool on) {
 void LocalModem::armLive(uint8_t teiCharger, uint8_t teiCar, uint8_t teiOwn) {
   _passive = false;
   _passiveOk = false;
-  _queue[0] = {ADDR_PPCB_TEIA, teiCharger};
-  _queue[1] = {ADDR_PPCB_TEIA + 1, teiCar};
-  _queue[2] = {ADDR_PPCB_TEIA + 2, teiOwn};
-  _queue[3] = {ADDR_ARMED, 1};
-  _queue[4] = {ADDR_OWN_TEI, teiCharger};  // first flip: the hook only sees unicast V2G once OWN_TEI is foreign
+  _queue[0] = {ADDR_PPCB_TEIA, teiCharger, 1};
+  _queue[1] = {ADDR_PPCB_TEIA + 1, teiCar, 1};
+  _queue[2] = {ADDR_PPCB_TEIA + 2, teiOwn, 1};
+  _queue[3] = {ADDR_ARMED, 1, 1};
+  _queue[4] = {ADDR_OWN_TEI, teiCharger, 1};  // first flip: the hook only sees unicast V2G once OWN_TEI is foreign
   _queueLen = 5;
   _queuePos = 0;
   _queueTries = 0;
@@ -253,7 +359,7 @@ void LocalModem::holdOwnTei(uint8_t tei) {
     _passiveOk = false;
     Serial.printf("Modem: holding OWN_TEI at %u (ping-pong disarmed, real TEI %u)\n", tei, _realOwn);
   } else if (_realOwn) {
-    _queue[0] = {ADDR_OWN_TEI, _realOwn};
+    _queue[0] = {ADDR_OWN_TEI, _realOwn, 1};
     _queueLen = 1;
     _queuePos = 0;
     _queueTries = 0;
@@ -280,7 +386,7 @@ void LocalModem::passiveStep(uint32_t now) {
   if (_queuePos < _queueLen && !_readPending && !_writePending && _scanPhase == ScanPhase::Idle && _macKnown &&
       _firmware == Firmware::Sniffer && build >= BUILD_MIN && build <= BUILD_MAX) {
     _holdWrite = HoldWrite::Queued;
-    sendWrite(_queue[_queuePos].addr, _queue[_queuePos].value, now);
+    sendWrite(_queue[_queuePos].addr, _queue[_queuePos].value, _queue[_queuePos].width, now);
     return;
   }
   if (!_passive || _readPending || _writePending || _scanPhase != ScanPhase::Idle || !_macKnown ||
@@ -313,11 +419,12 @@ bool LocalModem::passiveConfirm(const uint8_t *readBack) {
     _passiveOk = ok;
     _passiveWrites++;
   } else if (w == HoldWrite::Queued) {
-    Serial.printf("Modem: live arm, 0x%06lx = %u (read back %u)\n", (unsigned long)_queue[_queuePos].addr,
-                  _queue[_queuePos].value, readBack[0]);
+    Serial.printf("Modem: queued write 0x%06lx = 0x%lx w%u (read back 0x%02x)\n",
+                  (unsigned long)_queue[_queuePos].addr, (unsigned long)_queue[_queuePos].value,
+                  _queue[_queuePos].width, readBack[0]);
     _queueTries = 0;
     if (++_queuePos >= _queueLen) {
-      Serial.println("Modem: live arm done, ping-pong armed");
+      Serial.println("Modem: queued writes done");
     }
   } else if (w == HoldWrite::OwnTei && _holdOwn) {
     static uint8_t last = 0;
