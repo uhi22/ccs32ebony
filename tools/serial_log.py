@@ -9,7 +9,9 @@ Examples:
     python tools/serial_log.py COM3 -t 5 -s stat -s "log 1" -o logs/run1.txt
     python tools/serial_log.py COM3 -t 8 --reset
 
-Each received line is printed with a host timestamp (seconds since start). Commands given with
+Each received line is printed with a host timestamp (seconds since start). Output (screen and -o file)
+is flushed at most once per second, so a logger that is killed loses at most the last second; Ctrl-C
+ends the capture cleanly. Commands given with
 -s are sent one after another (newline-terminated) after a short delay. --reset pulses RTS
 (EN on adapters that wire it); without it, the board keeps running and only the output from now
 on is seen. Needs pyserial (`pip install pyserial`).
@@ -54,18 +56,28 @@ def main():
         t0 = time.time()
         pending = list(args.send)
         next_send = t0 + 1.0
+        next_flush = t0 + 1.0
         buf = b""
-        while time.time() - t0 < args.time:
-            if pending and time.time() >= next_send:
-                ser.write((pending.pop(0) + "\n").encode())
-                next_send = time.time() + 0.5
-            buf += ser.read(4096)
-            while b"\n" in buf:
-                raw, buf = buf.split(b"\n", 1)
-                line = "%8.3f %s" % (time.time() - t0, raw.decode("utf-8", "replace").rstrip("\r"))
-                print(line)
-                if out:
-                    out.write(line + "\n")
+        try:
+            while time.time() - t0 < args.time:
+                if pending and time.time() >= next_send:
+                    ser.write((pending.pop(0) + "\n").encode())
+                    next_send = time.time() + 0.5
+                buf += ser.read(4096)
+                while b"\n" in buf:
+                    raw, buf = buf.split(b"\n", 1)
+                    line = "%8.3f %s" % (time.time() - t0, raw.decode("utf-8", "replace").rstrip("\r"))
+                    print(line)
+                    if out:
+                        out.write(line + "\n")
+                # At most once per second: a killed logger loses no more than the last second
+                if time.time() >= next_flush:
+                    sys.stdout.flush()
+                    if out:
+                        out.flush()
+                    next_flush = time.time() + 1.0
+        except KeyboardInterrupt:
+            pass  # Ctrl-C ends the capture early; the rest is written below
         if buf:
             line = "%8.3f %s" % (time.time() - t0, buf.decode("utf-8", "replace"))
             print(line)

@@ -163,6 +163,11 @@ static bool extractDinBody(const struct dinBodyType &body, V2gValues &out) {
     out.targetVoltage = physicalValue(r.EVTargetVoltage);
     out.hasTargetCurrent = true;
     out.targetCurrent = physicalValue(r.EVTargetCurrent);
+    out.hasCdStatus = true;
+    out.evReady = r.DC_EVStatus.EVReady;
+    out.evErrorCode = (uint8_t)r.DC_EVStatus.EVErrorCode;
+    out.chargingComplete = r.ChargingComplete;
+    out.bulkChargingComplete = r.BulkChargingComplete_isUsed && r.BulkChargingComplete;
     return true;
   }
   if (body.CurrentDemandRes_isUsed) {
@@ -174,6 +179,12 @@ static bool extractDinBody(const struct dinBodyType &body, V2gValues &out) {
     out.presentVoltage = physicalValue(r.EVSEPresentVoltage);
     out.hasPresentCurrent = true;
     out.presentCurrent = physicalValue(r.EVSEPresentCurrent);
+    out.hasCdStatus = true;
+    out.evseStatusCode = (uint8_t)r.DC_EVSEStatus.EVSEStatusCode;
+    out.evseNotification = (uint8_t)r.DC_EVSEStatus.EVSENotification;
+    out.evseIsolation = r.DC_EVSEStatus.EVSEIsolationStatus_isUsed ? (uint8_t)r.DC_EVSEStatus.EVSEIsolationStatus : 0xff;
+    out.limitsAchieved = (r.EVSECurrentLimitAchieved ? 1 : 0) | (r.EVSEVoltageLimitAchieved ? 2 : 0) |
+                         (r.EVSEPowerLimitAchieved ? 4 : 0);
     return true;
   }
   NAMED(WeldingDetectionReq)

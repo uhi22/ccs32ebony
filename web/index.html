@@ -167,6 +167,22 @@ pre.detail { white-space: pre-wrap; margin: 0; }
 dd.warnv { color: var(--bad); font-weight: 600; }
 .cols2 { display: grid; grid-template-columns: 1fr 1fr; gap: var(--gap); }
 
+/* Connection: the whole link on one landscape screen (iPad, ~1000 px wide): cards in columns, small type */
+#tab-connection .kcols { column-count: 4; column-gap: 8px; }
+#tab-connection .kcols > .card { display: inline-block; width: 100%; break-inside: avoid; margin: 0 0 8px; padding: 8px 10px; }
+#tab-connection .card h2 { margin: 0 0 4px; font-size: 11px; }
+#tab-connection dl { grid-template-columns: max-content minmax(0, 1fr); gap: 1px 8px; font-size: 13px; }
+#tab-connection table { font-size: 13px; }
+#tab-connection th, #tab-connection td { padding: 1px 4px; }
+#tab-connection th { font-size: 11px; }
+#tab-connection .kfull { margin: 0; padding: 8px 10px; }
+#tab-connection .kmacs { margin-top: 6px; font-size: 11px; line-height: 1.35; }
+#tab-connection .kmac-h { color: var(--muted); font-size: 11px; }
+#tab-connection .kmac { display: flex; justify-content: space-between; gap: 6px; }
+#tab-connection .kmac-mac { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; color: var(--muted); }
+#tab-connection .mono { font-size: 12px; }
+@media (max-width: 1000px) { #tab-connection .kcols { column-count: 2; } }
+
 /* Log */
 .log { max-height: 65vh; overflow-y: auto; }
 .log table td { padding: 4px 8px; font-size: 14px; }
@@ -195,6 +211,7 @@ input[type=search] { font: inherit; padding: 6px 10px; border-radius: 999px; bor
   </header>
   <nav id="tabs">
     <button data-tab="live" class="on">Live</button>
+    <button data-tab="connection">Connection</button>
     <button data-tab="chart">Chart</button>
     <button data-tab="session">Session</button>
     <button data-tab="details">Details</button>
@@ -244,6 +261,26 @@ input[type=search] { font: inherit; padding: 6px 10px; border-radius: 999px; bor
       <div class="panel" data-chart="mini-u"></div>
       <div class="panel" data-chart="mini-i"></div>
       <div class="xlabel">time since session start (min:s)</div>
+    </div>
+  </section>
+
+  <!-- Connection: the link on one page (field use, no tab switching); detail stays on the tabs below -->
+  <section class="tab" id="tab-connection">
+    <div class="kcols">
+      <div class="card"><h2>Session</h2><dl id="k-session"></dl></div>
+      <div class="card"><h2>Modem and network</h2><dl id="k-modem"></dl><div class="kmacs" id="k-macs"></div></div>
+      <div class="card"><h2>TEIs and timing</h2><dl id="k-tei"></dl></div>
+      <div class="card"><h2>Traffic (count, per s)</h2><table id="k-traffic"></table></div>
+      <div class="card"><h2>Sniffer</h2><dl id="k-sniffer"></dl></div>
+      <div class="card"><h2>Box</h2><dl id="k-box"></dl></div>
+    </div>
+    <div class="card kfull">
+      <h2>Modems in the network</h2>
+      <p style="margin:0 0 4px"><button class="icon-btn" id="k-readver">Read modem versions</button>
+        <button class="icon-btn" id="k-clearver">Clear</button>
+        <span class="muted" id="k-vernote"></span></p>
+      <table id="k-vers"></table>
+      <p class="muted" id="k-verhint" style="margin:4px 0 0"></p>
     </div>
   </section>
 
@@ -547,6 +584,7 @@ function render() {
   if (tab === "details") renderDetails();
   if (tab === "network") renderNetwork();
   if (tab === "sniffer") renderSniffer();
+  if (tab === "connection") renderConnection();
   dirty.status = dirty.session = dirty.items = false;
 }
 function redrawAll() {
@@ -1100,7 +1138,7 @@ $("s-passive-btn").onclick = () => {
   if (socket) { try { socket.send('{"t":"passive","on":' + on + '}'); } catch (e) {} }
 };
 $("n-clearver").onclick = () => { if (socket) { try { socket.send('{"t":"clearVersions"}'); } catch (e) {} } };
-function renderVersions() {
+function renderVersions(ids = { table: "n-vers", note: "n-vernote", hint: "n-verhint" }) {
   const v = S.versions, m = S.status && S.status.modem, b = S.sniffer && S.sniffer.b;
   const lc = (x) => (x || "").toLowerCase();
   const stations = (m && m.joined && m.stations) || [];
@@ -1113,7 +1151,7 @@ function renderVersions() {
   };
   // The other modems answer to the sniffer's real TEI. The box pauses the sniffer's ping-pong for the read
   // (about 0.3 s) so that these answers get in; V2G frames of that moment are not caught.
-  const hint = $("n-verhint");
+  const hint = $(ids.hint);
   hint.className = "muted";
   hint.textContent = !v || v.running || !v.started ? ""
     : v.resumeFailed ? "Resuming the sniffer's ping-pong was NOT confirmed – it may not follow the session until the modem restarts."
@@ -1121,12 +1159,12 @@ function renderVersions() {
     : "Read without pausing the sniffer (no sniffer status block, or not joined).";
   hint.style.color = v && v.resumeFailed ? "var(--bad)" : "";
   if (!v || (!v.started && !v.list.length)) {
-    $("n-vernote").textContent = "Empty. Each read sends one request to all modems in the session network; the list grows over the reads.";
-    clear($("n-vers")); return;
+    $(ids.note).textContent = "Empty. Each read sends one request to all modems in the session network; the list grows over the reads.";
+    clear($(ids.table)); return;
   }
-  $("n-vernote").textContent = v.running ? "reading…" : !v.started ? "" : "last read at "
+  $(ids.note).textContent = v.running ? "reading…" : !v.started ? "" : "last read at "
     + new Date(v.started + S.offset).toLocaleTimeString() + ": " + v.answers + " answer" + (v.answers === 1 ? "" : "s");
-  const t = clear($("n-vers"));
+  const t = clear($(ids.table));
   const hr = el("tr");
   for (const x of ["Role", "MAC", "TEI", "Version", "Last answer"]) hr.appendChild(el("th", "", x));
   t.appendChild(hr);
@@ -1160,7 +1198,8 @@ function renderNetwork() {
   for (const x of ["", "count", "per second"]) hr.appendChild(el("th", x ? "num" : "", x));
   t.appendChild(hr);
   for (const [k, label] of [["rx", "all frames"], ["mme", "HomePlug"], ["ipv6", "IPv6"], ["ipv4", "IPv4 / ARP"], ["other", "other"],
-      ["drop", "dropped by the box"], ["v2gOk", "V2G decoded"], ["v2gFail", "V2G failed"], ["gaps", "TCP gaps"]]) {
+      ["drop", "dropped by the box"], ["v2gOk", "V2G decoded"], ["v2gFail", "V2G failed"],
+      ["cdSkip", "CurrentDemand skipped (limiter)"], ["gaps", "TCP gaps"]]) {
     const tr = el("tr");
     tr.append(el("td", "", label), el("td", "num", st[k]), el("td", "num", rates[k] !== undefined ? fmt(rates[k], 1) : "–"));
     t.appendChild(tr);
@@ -1182,6 +1221,114 @@ function renderNetwork() {
     ["Viewers", st.ws + " browser" + (st.ws === 1 ? "" : "s") + ", " + st.sta + " Wi-Fi station" + (st.sta === 1 ? "" : "s")],
   ]);
   drawAtten();
+}
+
+// ---- Connection tab: the link on one page (session, modem, TEIs, traffic, sniffer state, modems, box) ----
+$("k-readver").onclick = () => { if (socket) { try { socket.send('{"t":"readVersions"}'); } catch (e) {} } };
+$("k-clearver").onclick = () => { if (socket) { try { socket.send('{"t":"clearVersions"}'); } catch (e) {} } };
+function renderConnection() {
+  const st = S.status;
+  if (!st) return;
+  const s = S.session || {}, sdp = s.sdp || {}, m = st.modem;
+  const sn = S.sniffer, b = (sn && sn.b) || {}, p = sn && sn.passive, v = S.versions;
+  const lc = (x) => (x || "").toLowerCase();
+  const stations = (m.joined && m.stations) || [];
+  const roleOf = (mac, tei) => {
+    if (lc(mac) === lc(m.mac)) return "this sniffer";
+    if (m.ccoMac && lc(mac) === lc(m.ccoMac)) return "charger (CCo)";
+    if (sn && sn.b && tei === b.teiA) return "charger";
+    if (sn && sn.b && tei === b.teiB) return "car";
+    return "other station";
+  };
+  const SS = { none: "no session yet", running: "running", stopped: "stopped", finished: "finished" };
+  dl($("k-session"), [
+    ["State", SS[sessionState()]],
+    ["SDP request (car)", sdp.req ? "security " + sdp.req.sec + ", " + sdp.req.tr : "not seen"],
+    ["SDP response (charger)", sdp.res && sdp.res.ip ? "[" + sdp.res.ip + "]:" + sdp.res.port : "not seen", "mono"],
+    ["Protocol handshake", s.hs && s.hs.result !== undefined ? HS[s.hs.result] || s.hs.result : "not seen"],
+  ]);
+
+  dl($("k-modem"), [
+    ["Modem", !st.link ? "Ethernet down" : !m.alive ? "not answering" : m.fw === "sniffer" ? "sniffer " + m.tag
+      : m.fw === "stock" ? "stock firmware?" : "checking…"],
+    ["Firmware version", m.ver, "mono"],
+    ["Network", !m.alive ? "" : m.joined ? "joined, CCo TEI " + m.cco : "not joined"],
+  ]);
+  // Every station with its MAC, in a smaller font: TEI and role, then the MAC
+  // VS_NW_INFO lists the other stations only, so the sniffer itself is added (MAC, real TEI = nat_own)
+  const all = stations.slice();
+  if (m.mac && !all.some((x) => lc(x.mac) === lc(m.mac))) all.unshift({ mac: m.mac, tei: b.natOwn || "?" });
+  const macs = clear($("k-macs"));
+  macs.appendChild(el("div", "kmac-h", "Stations (" + all.length + ")"));
+  for (const x of all) {
+    const r = el("div", "kmac");
+    r.append(el("span", "", x.tei + " " + roleOf(x.mac, x.tei)), el("span", "kmac-mac", x.mac));
+    macs.appendChild(r);
+  }
+
+  const learned = b.teiB ? "car " + b.teiB + ", charger " + b.teiA
+    : b.pending ? "car not found, retrying" : b.teiA ? "learning…" : "waiting for SDP";
+  const rel = (t) => (!t || !b.tJoin ? "–" : sec(t - b.tJoin));
+  dl($("k-tei"), [
+    ["State", sn && sn.b ? learned : ""],
+    ["OWN_TEI now (moves)", b.own !== undefined ? b.own : ""],
+    ["nat_own (stable)", b.natOwn !== undefined ? b.natOwn : ""],
+    ["Car candidates", b.cands, b.cands > 1 ? "warnv" : ""],
+    ["Found / missed at SDP", b.found !== undefined ? b.found + " / " + b.miss : "", b.miss > 0 ? "warnv" : ""],
+    ["Retry found / no result", b.retryOk !== undefined ? b.retryOk + " / " + b.retryMisses : ""],
+    ["Cleared", b.clears],
+    ["Joined at uptime", b.tJoin ? dur(b.tJoin) : "not joined"],
+    ["SDP request after join", rel(b.tSdp)],
+    ["Car TEI learned after join", rel(b.tLearned)],
+    ["1st SDP response after join", rel(b.tFirstResp)],
+  ]);
+
+  // Two sources side by side: the sniffer (at the modem) and the box (at the Ethernet port)
+  const t = clear($("k-traffic"));
+  const hr = el("tr");
+  for (const x of ["", "sniffer", "/s", "box", "/s"]) hr.appendChild(el("th", "num", x));
+  t.appendChild(hr);
+  const val = (x) => (x === undefined || x === null ? "–" : x);
+  const rat = (x) => (x === undefined ? "–" : fmt(x, 1));
+  const row = (label, sCount, sRate, bCount, bRate) => {
+    const r = el("tr");
+    r.append(el("td", "", label), el("td", "num", val(sCount)), el("td", "num", rat(sRate)), el("td", "num", val(bCount)), el("td", "num", rat(bRate)));
+    t.appendChild(r);
+  };
+  row("all frames", b.frames, snifferRates.frames, st.rx, rates.rx);
+  row("V2G TCP to charger", b.tcpCharger, snifferRates.tcpCharger);
+  row("V2G TCP to car", b.tcpCar, snifferRates.tcpCar);
+  row("SDP request", b.sdpReq, snifferRates.sdpReq);
+  row("SDP response", b.sdpResp, snifferRates.sdpResp);
+  row("V2G decoded", undefined, undefined, st.v2gOk, rates.v2gOk);
+  row("V2G failed", undefined, undefined, st.v2gFail, rates.v2gFail);
+  row("CurrentDemand skipped", undefined, undefined, st.cdSkip, rates.cdSkip);
+  row("TCP gaps", undefined, undefined, st.gaps, rates.gaps);
+  row("dropped by box", undefined, undefined, st.drop, rates.drop);
+
+  dl($("k-sniffer"), [
+    ["Status block", !sn ? "" : sn.state === "valid" ? "valid" : sn.state],
+    ["Build", b.build, "mono"],
+    ["Passive mode", !p ? "" : !p.on ? "off" : p.ok ? "ON, disarmed" : "ON, NOT confirmed", p && p.on && !p.ok ? "warnv" : ""],
+    ["Last version read", v && v.started ? new Date(v.started + S.offset).toLocaleTimeString() : "none"],
+    ["Read paused ping-pong", v && v.started ? (v.paused ? "yes" : "no") : "–"],
+    ["Resume after read", v && v.resumeFailed ? "NOT confirmed" : v && v.started ? "confirmed" : "–", v && v.resumeFailed ? "warnv" : ""],
+    ["TEI sites held", sn && sn.teiMask ? "some (" + sn.teiMask + ")" : "none"],
+    ["Uptime / since restart", b.up !== undefined ? dur(b.up) + " / " + dur(b.seq * 100) : "–"],
+    ["Restarts (box)", sn ? sn.restarts + (sn.restarts && sn.lastRestart !== undefined ? ", at " + dur(sn.lastRestart) : "") : "–",
+      sn && sn.restarts > 0 ? "warnv" : ""],
+    ["Dropped MMEs", b.rej === undefined ? "n/a (v147+)" : b.rej + (b.rej ? ", last " + hex4(b.rejLast) : ""), b.rej > 0 ? "warnv" : ""],
+  ]);
+
+  renderVersions({ table: "k-vers", note: "k-vernote", hint: "k-verhint" });
+
+  dl($("k-box"), [
+    ["Firmware", S.hello ? S.hello.fw + " " + S.hello.ver + " (" + S.hello.build + ")" : ""],
+    ["Uptime", dur(st.ms)],
+    ["Ethernet", st.link ? st.speed + " Mbit/s " + (st.fd ? "full" : "half") + " duplex" : "no link"],
+    ["Viewers", st.ws + " browser" + (st.ws === 1 ? "" : "s") + ", " + st.sta + " Wi-Fi station" + (st.sta === 1 ? "" : "s")],
+    ["Free memory", Math.round(st.heap / 1024) + " kB"],
+  ]);
 }
 
 // Attenuation: one bar per carrier group, single series; tap a bar for its value
@@ -1356,7 +1503,7 @@ function connect() {
       case "status":
         if (prevStatus) {
           const dt = (m.ms - prevStatus.ms) / 1000;
-          for (const k of ["rx", "mme", "ipv6", "ipv4", "other", "drop", "v2gOk", "v2gFail", "gaps"]) rates[k] = dt > 0 ? Math.max(0, (m[k] - prevStatus[k]) / dt) : 0;
+          for (const k of ["rx", "mme", "ipv6", "ipv4", "other", "drop", "v2gOk", "v2gFail", "cdSkip", "gaps"]) rates[k] = dt > 0 ? Math.max(0, (m[k] - prevStatus[k]) / dt) : 0;
         }
         prevStatus = m; S.status = m; dirty.status = true;
         break;

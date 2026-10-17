@@ -64,6 +64,14 @@ python tools/serial_log.py <port> -t 10
 python tools/serial_log.py <port> -t 5 -s stat -s "log 0"
 ```
 
+**CurrentDemand limiter.** A fast charge sends about 60 CurrentDemand messages per second, more than
+115200 baud and the web page carry. While the last CurrentDemandReq (or -Res) that was passed on is
+younger than 250 ms and nothing relevant changed (status and error fields, SoC, voltage within 10 V,
+current within 10 A), the next one is only counted: no `F` line for its frame, no `D` line, no web
+update. Error states are always passed on, and so is the first CurrentDemand after any other message. The
+count is `cdskip` in the `S` line and "CurrentDemand skipped" on the Connection and Network tabs. TCP ACK
+frames still get their `F` lines.
+
 Serial commands: `log 0|1` (one line per frame on/off), `hex <n>` (also dump the first n bytes of
 each frame), `stat` (summary line now), `modem` (local modem status), `modem retag` (ask for the
 sniffer build tag again), `session` (print the session state as the UI gets it), `sniffer` (status block),

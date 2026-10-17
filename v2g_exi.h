@@ -29,9 +29,17 @@ struct V2gValues {
   float evMaxVoltage = 0, evMaxCurrent = 0;  // EVMaximum*Limit, mandatory inside it
   bool hasFullSoc = false, hasBulkSoc = false;  // both optional in DIN, often omitted
   int8_t fullSoc = 0, bulkSoc = 0;
-  bool evReady = false;             // DC_EVStatus of the request
+  bool evReady = false;             // DC_EVStatus of the request (also set for CurrentDemandReq)
   uint8_t evErrorCode = 0;          // dinDC_EVErrorCodeType - 0 = NO_ERROR
   int8_t cpdSoc = 0;                // DC_EVStatus.EVRESSSOC at discovery time
+
+  // CurrentDemand status and error information (the CurrentDemand limiter compares these)
+  bool hasCdStatus = false;         // this was a CurrentDemandReq or -Res: the fields below are set
+  bool chargingComplete = false, bulkChargingComplete = false;  // Req
+  uint8_t evseStatusCode = 0;       // Res: dinDC_EVSEStatusCodeType - 1 = EVSE_Ready
+  uint8_t evseNotification = 0;     // Res: dinEVSENotificationType - 0 = None, 1 = StopCharging
+  uint8_t evseIsolation = 0xff;     // Res: dinisolationLevelType - 1 = Valid, 3 = Fault; 0xff = not sent
+  uint8_t limitsAchieved = 0;       // Res: bit 0 current, bit 1 voltage, bit 2 power limit achieved
 
   bool hasCpdRes = false;           // this was a ChargeParameterDiscoveryRes
   uint8_t evseProcessing = 0;       // dinEVSEProcessingType - 0 = Finished, 1 = Ongoing

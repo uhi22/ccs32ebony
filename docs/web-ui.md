@@ -43,13 +43,20 @@ narrow screens). The last tab and the theme are remembered on the device.
    up), and the last message with its response code. A mini chart shows the last 2 minutes of U/I.
    Tiles and phases follow every decoded message at once. The 1 Hz `session` snapshot is the
    reference, and a message only updates a value or the phase if it is newer.
-2. **Chart**
+2. **Connection**
+   The whole link on one page, for use in the field without tab switching: session state (SDP
+   request and response, handshake result), modem (firmware, joined, own TEI, station list with
+   role), TEIs and timing (charger and car TEI, candidates, found or missed at the SDP request,
+   time after the join), traffic counts and rates of the sniffer and of the box, the sniffer's
+   passive and version-read state, the modems in the network (read and clear buttons, same list as
+   on Network) and the box. It shows the same values as Network and Sniffer, which stay for detail.
+3. **Chart**
    Voltage, current, power and SoC over the whole session, or the last 10 or 2 minutes. One
    panel per measurement, present and target in the same panel. Drag or tap to move the
    crosshair: all panels follow it, and each panel's header shows the values at that time (the
    latest values otherwise). Lines break where no value came for more than 3 s. "Show table"
    lists the values every 5 s.
-3. **Session**
+4. **Session**
    - Timeline: one bar per phase with its duration and status (running, stopped, not reached),
      as in ccs32dave page 4.
    - Message ladder between car and charger (ccs32dave page 9). Consecutive messages of the same
@@ -57,13 +64,13 @@ narrow screens). The last tab and the theme are remembered on the device.
      message.
    - Redrawn at most 4 times per second (up to ~60 messages/s arrive in a fast charge), so the
      newest row may lag by up to 0.25 s.
-4. **Details**
+5. **Details**
    - SDP request and response, charger address
    - Protocol handshake: offered schemas, the selected one, the result (ccs32dave page 2)
    - ChargeParameterDiscovery, car vs. charger side by side (ccs32dave page 3)
    - Energy: kWh, Ah, peak and average power, time with current flowing (ccs32dave page 8)
    - Identity and keys, masked until tapped (ccs32dave page 7)
-5. **Network**
+6. **Network**
    Frame counters by type with rates, decode results and TCP gaps. The local modem (version,
    sniffer tag, joined, station list) and the box (firmware, uptime, memory, viewers). SLAC
    attenuation profile per carrier group as a bar chart (ccs32dave page 5).
@@ -77,7 +84,7 @@ narrow screens). The last tab and the theme are remembered on the device.
    sniffer does not accept while it follows a session; so the box pauses the sniffer's ping-pong
    for the read (about 0.3 s: pause, broadcast, 200 ms collection, resume) and the page says so.
    V2G frames of that moment are not caught; the charging session itself is not affected.
-6. **Sniffer**
+7. **Sniffer**
    The sniffer firmware's status block (sniffer builds v146..v199), refreshed every 0.5 s: TEI
    learning (state, car / charger / own TEI, candidates, found or missed at the SDP request,
    fallback retries), timing after the join (SDP request, car TEI learned, first SDP response),
