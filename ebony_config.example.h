@@ -19,7 +19,7 @@
 //    can only be cancelled, which leaves the network.
 #define WIFI_CAPTIVE_PORTAL 0
 
-// Sniffer passive test mode at start (diagnostic, LocalModem::setPassive): 1 = the sniffer's ping-pong is held
-// disarmed from power-on - it joins but catches no V2G. Only for diagnostic runs (qca7000-transparency
-// plans/plan-alpitronic-abort.md, matrix item 3). 0 = normal sniffing (default); the Sniffer tab can switch it.
+// Sniffer mode at start (LocalModem::setMode): 1 = passive from power-on - it joins, learns the TEIs, stays silent
+// on its real TEI and catches no V2G until another mode is chosen. 0 = ping-pong (default); the Sniffer tab and the
+// serial "mode" command switch it (passive / pingpong / car / charger).
 #define SNIFFER_PASSIVE_DEFAULT 0

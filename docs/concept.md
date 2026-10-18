@@ -83,17 +83,17 @@ How it is done (`local_modem.cpp`), and what was seen on the hardware:
    reported "own TEI" switches back and forth (that's how it receives both directions), so it is
    not shown as meaningful. The modem's real TEI is its entry in the station list.
 
-4. **Status block** (sniffer builds v146..v199): `GET_SW.REQ` with the payload `RDM1` and a
+4. **Status block** (sniffer builds v158..v199): `GET_SW.REQ` with the payload `RDM1` and a
    4-byte little-endian address at byte 24 returns the 16 bytes at that address, at byte 23 of the
    answer (same shape as the tag answer). Every 0.5 s the box reads the 80-byte block at
    `0x22c2a8` with five such requests, strictly one after the other: the answer does not repeat
    the address, so only one may be outstanding (300 ms timeout per read). It checks magic `EBS1`,
-   layout 1 and the size byte, and decodes only fields below the size (64 bytes in v146, 80 from
-   v147). A drop of the block's `seq` (10 Hz since the modem's last firmware start) counts as a
+   layout 1 and the size byte (80; v157 fields at 0x44..0x4a: learn source, SDP seen, candidate age, first
+   flips, disarm fixes, relearns; v158: the mode at 0x4d). A drop of the block's `seq` (10 Hz since the modem's last firmware start) counts as a
    modem restart. For any other tag nothing is read: a wrong address can reset the modem.
    The block layout is a contract owned by the sniffer firmware project
-   (qca7000-transparency, `plans/interface-ardut-ebony.md`): stable for builds v146..v199, new
-   fields only appended. Serial: `sniffer`.
+   (qca7000-transparency, `plans/interface-ardut-ebony.md`); ebony supports v158..v199 only (kept in sync
+   with the firmware, no older layouts). Serial: `sniffer`.
 
 5. **Modem versions, on request only** (button on the Network tab, serial `versions`): one
    `GET_SW.REQ` to the broadcast address. Every Qualcomm modem in the session network answers

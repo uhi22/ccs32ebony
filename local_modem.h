@@ -3,26 +3,26 @@
 //   1. GET_SW.REQ to the local management address -> the modem's MAC and version string
 //   2. GET_SW.REQ "GST1" to that MAC             -> sniffer build tag, or none (stock firmware)
 //   3. VS_NW_INFO.REQ to that MAC, every second    -> alive, joined / not joined
-//   4. GET_SW.REQ "RDM1" x 5 to that MAC, every 0.5 s (sniffer builds v146..v199 only)
+//   4. GET_SW.REQ "RDM1" x 5 to that MAC, every 0.5 s (sniffer builds v157..v199 only)
 //                                                  -> the sniffer's 80-byte status block
 // Nothing is broadcast cyclically, so these queries never reach the powerline session. The one
 // exception is the version scan (startVersionScan, on demand only): a single GET_SW.REQ broadcast
 // that every modem in the session network answers with its MAC and firmware version. The answers are
 // addressed to the sniffer's own (real) TEI, which the sniffer does not accept while its ping-pong follows a
 // session, so the scan pauses the ping-pong around the broadcast (contract section 5, "WRM1" writes):
-// armed = 0, OWN_TEI = nat_own, broadcast, collect 200 ms, armed = 1. The ping-pong resynchronises on the
-// next V2G frame; the V2G frames of those ~0.3 s are not caught.
+// armed = 0, OWN_TEI = nat_own, broadcast, collect 200 ms, armed = 1. The firmware makes the first flip again
+// within 100 ms (v157); the V2G frames of those ~0.3 s are not caught.
 //
 //
-// Passive test mode (diagnostic, off by default; qca7000-transparency plans/plan-alpitronic-abort.md, field
-// matrix item 3): keeps the ping-pong disarmed by writing armed = 0 every 0.5 s. The firmware re-arms itself on
-// the first frame after each of its restarts, hence the repetition. The sniffer then joins as usual (the key and
-// NID pickup does not depend on armed) but never learns TEIs and never switches OWN_TEI: a joined, passive
-// station that catches no V2G. Proof per session in the status block: teiA = teiB = 0, no TCP frames caught.
+// Sniffer mode (v158, the firmware's mode byte at 0x22c4f8, contract section 5): 0 passive (silent on the real
+// TEI), 1 ping-pong (the firmware's own init value), 2 selfIsCar (OWN_TEI held = the car's TEI), 3 selfIsCharger
+// (held = the charger's TEI). The firmware learns the TEIs in every mode and holds OWN_TEI per mode itself; it
+// re-inits the byte to 1 after each of its restarts, so modes 0/2/3 are re-written every 0.5 s. Switching to 1 is
+// one write: the firmware makes the first flip within 100 ms.
 //
-// The status block is a contract with the sniffer firmware (pyPLC AR7420 sniffer patch; source of truth:
-// qca7000-transparency plans/interface-ardut-ebony.md): address 0x22c2a8, magic 'EBS1', layout 1, 64 bytes in
-// v146 and 80 bytes from v147. Only fields below the block's size byte are used.
+// The status block is a contract with the sniffer firmware (source of truth: qca7000-transparency
+// plans/interface-ardut-ebony.md): address 0x22c2a8, magic 'EBS1', layout 1, 80 bytes, v157 fields at 0x44..0x4a,
+// the mode at 0x4d (v158). Only builds v158..v199 are supported (firmware and ebony are kept in sync).
 
 #pragma once
 
@@ -45,8 +45,16 @@ struct SnifferStatus {
   uint32_t frames = 0;
   uint16_t sdpReq = 0, sdpResp = 0;
   uint32_t seq = 0;                    // 10 Hz since the modem's last firmware start
-  bool hasRejected = false;            // size >= 0x44 (v147+)
   uint16_t rejectedMme = 0, lastRejectedMmtype = 0;
+  // v157: learning independent of armed, tick fallback, firmware first flip
+  uint8_t learnSrc = 0;                // 0 none, 1 SDP request, 2 per-frame retry, 3 tick fallback (this join)
+  uint8_t c5Score = 0;                 // re-check counter (display only)
+  uint8_t firstFlips = 0;              // first flips made by the firmware (since its last start)
+  uint8_t disarmFixes = 0;             // OWN_TEI put back to nat_own while armed = 0 (since its last start)
+  uint8_t sdpSeen = 0;                 // an SDP request was seen in this join
+  uint8_t relearns = 0;                // car TEI corrected by the re-check (since its last start)
+  uint8_t candAge = 0;                 // tick fallback: 100 ms ticks a car candidate has existed (255 = saturated)
+  uint8_t mode = 1;                    // v158: the mode as the firmware's tick saw it
 };
 
 struct ModemVersion {
@@ -110,26 +118,19 @@ public:
   bool takeVersionUpdate() { bool u = _versionUpdated; _versionUpdated = false; return u; }
   void printVersions(Print &out) const;
 
-  // Passive test mode (see above)
-  void setPassive(bool on);
-  bool passive() const { return _passive; }
-  bool passiveConfirmed() const { return _passiveOk; }        // the last armed = 0 write was read back as 0
-  uint32_t passiveWrites() const { return _passiveWrites; }   // confirmed writes since switched on
-  uint32_t passiveTimeouts() const { return _passiveTimeouts; }
-  // The ping-pong learned TEIs in this join although passive (a write came too late): not a passive run
-  bool passiveBreached() const { return _passive && _sbValid && (_sb.teiA || _sb.teiB || _sb.pending); }
-  // Diagnostic: start the ping-pong in the middle of a session (serial "arm <charger> <car> <own>"). It
-  // normally learns the TEIs at the SDP request, which is long past then, so the TEIs are written into its
-  // control block (PPCB 0x22c4ec +0x10/+0x11/+0x12, v145..v147 layout, NOT part of the contract), then
-  // armed = 1 and OWN_TEI = charger (the first flip: on its real TEI the sniffer never receives the unicast V2G
-  // frames the ping-pong flips on). Switches the passive mode off.
-  void armLive(uint8_t teiCharger, uint8_t teiCar, uint8_t teiOwn);
-  // Diagnostic (plan matrix items 4/5): hold OWN_TEI at a fixed TEI (e.g. the car's or the charger's) with the
-  // ping-pong disarmed, re-written every 0.5 s (serial "own <tei>"; "own 0" ends it). Implies passive mode.
-  void holdOwnTei(uint8_t tei);
-  uint8_t heldOwnTei() const { return _holdOwn; }
+  // Sniffer mode (see above)
+  enum Mode : uint8_t { MODE_PASSIVE = 0, MODE_PINGPONG = 1, MODE_SELF_IS_CAR = 2, MODE_SELF_IS_CHARGER = 3 };
+  static const char *modeName(uint8_t m);
+  static int modeFromName(const char *name);                  // -1 = unknown
+  void setMode(uint8_t m);
+  uint8_t mode() const { return _mode; }
+  bool modeConfirmed() const { return _modeOk; }              // the last mode write was read back
+  uint32_t modeWrites() const { return _modeWrites; }         // confirmed re-writes since the mode was set
+  uint32_t modeTimeouts() const { return _modeTimeouts; }
+  // OWN_TEI is not what the mode wants right now (the firmware corrects it within 100 ms; holds only once learned)
+  bool modeBreached() const;
 
-  // OWN_TEI consumer mask (contract section 6, v152+; refused on older builds). The firmware bakes all 41 sites to "real"; these flip
+  // OWN_TEI consumer mask (contract section 6). The firmware bakes all 41 sites to "real"; these flip
   // individual sites (or all) back to "follow" (the held/foreign TEI) for field bisection of the Alpitronic abort.
   // The override is a bit set (bit = "held follow"); it is re-applied after every modem restart.
   static constexpr uint8_t TEI_SITES = 41;
@@ -139,8 +140,15 @@ public:
   uint64_t teiMask() const { return _teiMask; }
   void resetModem();                             // VS_RS_DEV soft reset (seq restarts; triggers mask re-apply)
 
+  // Raw memory access of the sniffer (serial "rd <addr> [len]" / "wr <addr> <value> [1|4]"), RDM1/WRM1 over GET_SW.
+  // Only inside the mapped ranges (qca7000-transparency readme fact (z)): an unmapped read resets the modem, and the
+  // V2.4 has no SPI recovery. One request at a time, after any outstanding block read / write / scan; output on Serial.
+  bool memRead(uint32_t addr, uint16_t len);
+  bool memWrite(uint32_t addr, uint32_t value, uint8_t width);
+  static bool memMapped(uint32_t addr, uint32_t len);
+
 private:
-  bool teiMaskAllowed() const;                   // build >= TEI_MASK_MIN_BUILD, else prints why and refuses
+  bool teiMaskAllowed() const;                   // build in the contract range, else prints why and refuses
   static constexpr uint32_t QUERY_INTERVAL_MS = 1000;
   static constexpr uint32_t ALIVE_TIMEOUT_MS = 3500;
   static constexpr uint32_t FORGET_TIMEOUT_MS = 10000;  // re-learn the MAC (modem swapped/reset)
@@ -149,9 +157,7 @@ private:
   static constexpr uint32_t BLOCK_READ_TIMEOUT_MS = 300;    // per 16-byte read
   static constexpr uint32_t BLOCK_ADDR = 0x22c2a8;
   static constexpr uint8_t BLOCK_READS = 5;                 // 80 bytes
-  static constexpr int BUILD_MIN = 146, BUILD_MAX = 199;    // contract range
-  // v152+ only: before it, nat_own is not seeded in passive mode, so "real" sites would read TEI 0 (no association)
-  static constexpr int TEI_MASK_MIN_BUILD = 152;
+  static constexpr int BUILD_MIN = 158, BUILD_MAX = 199;    // contract range (kept in sync with the firmware)
   static constexpr uint32_t VERSION_SCAN_MS = 200;          // answers come within ~100 ms
   static constexpr uint32_t WRITE_TIMEOUT_MS = 300;
   static constexpr uint8_t RESUME_TRIES = 5;
@@ -172,6 +178,8 @@ private:
   void finishScan();
   void passiveStep(uint32_t now);
   bool passiveConfirm(const uint8_t *readBack);
+  void memStep(uint32_t now);
+  void memAnswer(const uint8_t *content);
 
   EthSniffer &_eth;
   uint32_t _lastQueryMs = 0;
@@ -217,20 +225,23 @@ private:
   ModemVersion _versions[MAX_VERSIONS] = {};
   bool _versionUpdated = false;
 
-  enum class HoldWrite : uint8_t { None, Armed, OwnTei, Queued };
-  static constexpr uint32_t ADDR_PPCB_TEIA = 0x22c4fc;  // PPCB +0x10 teiA, +0x11 teiB, +0x12 nat_own
+  enum class HoldWrite : uint8_t { None, Armed, Queued };
   static constexpr uint32_t TEI_SLOT_REAL = 0x0022c4ea;   // slot value -> site reads nat_own (baked default)
   static constexpr uint32_t TEI_SLOT_FOLLOW = 0x0008bdd8;  // slot value -> site reads OWN_TEI (the override)
   static const uint32_t TEI_SLOT_ADDR[TEI_SITES];          // the 41 slot write addresses (local_modem.cpp)
   struct QueuedWrite { uint32_t addr; uint32_t value; uint8_t width; };
-  QueuedWrite _queue[TEI_SITES + 8] = {};               // up to 41 mask writes, plus headroom for the live-arm queue
+  QueuedWrite _queue[TEI_SITES] = {};                   // up to 41 mask writes
   uint8_t _queueLen = 0, _queuePos = 0, _queueTries = 0;
   uint64_t _teiMask = 0;     // bit i set = site i held "follow" (overriding the baked "real"); 0 = all real
-  uint8_t _holdOwn = 0;      // 0 = not holding
-  uint8_t _realOwn = 0;      // the sniffer's real TEI when the hold started
-  bool _holdOwnTurn = false; // alternate armed = 0 and OWN_TEI writes
-  bool _passive = false, _passiveOk = false;
-  HoldWrite _holdWrite = HoldWrite::None;   // which passive write is outstanding
+  uint8_t _mode = MODE_PINGPONG;
+  bool _modeOk = false;
+  HoldWrite _holdWrite = HoldWrite::None;   // which mode / queued write is outstanding
   uint32_t _lastPassiveMs = 0;
-  uint32_t _passiveWrites = 0, _passiveTimeouts = 0;
+  uint32_t _modeWrites = 0, _modeTimeouts = 0;
+
+  static constexpr uint16_t MEM_READ_MAX = 256;
+  bool _memActive = false, _memPending = false, _memWrite = false;
+  uint32_t _memAddr = 0, _memValue = 0, _memSentMs = 0;
+  uint16_t _memLeft = 0;
+  uint8_t _memWidth = 1, _memTries = 0;
 };

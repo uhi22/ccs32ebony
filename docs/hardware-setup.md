@@ -75,12 +75,15 @@ frames still get their `F` lines.
 Serial commands: `log 0|1` (one line per frame on/off), `hex <n>` (also dump the first n bytes of
 each frame), `stat` (summary line now), `modem` (local modem status), `modem retag` (ask for the
 sniffer build tag again), `session` (print the session state as the UI gets it), `sniffer` (status block),
-`versions` / `versions clear` (version scan). Diagnostics for the sniffer firmware (v146+, contract range 146..199,
-see `LocalModem` in `local_modem.h`): `passive on|off` (hold the ping-pong disarmed; off by default,
-`SNIFFER_PASSIVE_DEFAULT` 0), `arm <charger> <car> <own>` (start the ping-pong mid-session; lacks the first
-OWN_TEI flip, so it does not flip yet), `own <tei>` / `own 0` (hold OWN_TEI at a fixed TEI / back to the real
-one). A held OWN_TEI survives an ebony reset and is re-written after a modem restart: power-cycle the modem
-(and reset ebony) to get rid of it. OWN_TEI consumer mask (v152+ only, refused on older builds; contract
+`versions` / `versions clear` (version scan). Sniffer firmware controls (builds v158..v199 only, kept in sync with
+the firmware; see `LocalModem` in `local_modem.h`): `mode passive|pingpong|car|charger` - passive = joined, learning
+the TEIs, silent on the real TEI; pingpong = both directions (the firmware makes the first flip at once, also
+mid-session); car / charger = OWN_TEI held at the car's / the charger's TEI once learned, one direction only. Takes
+effect within 100 ms; modes other than pingpong are re-written every 0.5 s (held across modem restarts); default
+pingpong (`SNIFFER_PASSIVE_DEFAULT` 1 = start passive). Raw memory access of the sniffer: `rd <addr> [len]`
+(16-byte RDM1 reads, len 1..256, hex dump) and `wr <addr> <value> [1|4]` (WRM1, prints the read-back), hex or
+decimal; refused outside the mapped ranges 0x0-0x1ffff, 0x80000-0x9ffff, 0x180000-0x37ffff (an unmapped read resets
+the modem; 0x1b2000-0x1fffff is mapped but unbacked: reads 0, writes are lost). OWN_TEI consumer mask (contract
 qca7000-transparency `plans/interface-ardut-ebony.md` §6): `tshow` (list the 41 sites), `tmask real|follow` (all),
 `tsite <n> real|follow` (one site), `modemreset` (VS_RS_DEV soft reset of the modem; held follows are re-applied
 after every modem restart). A summary

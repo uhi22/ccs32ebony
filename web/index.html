@@ -360,11 +360,13 @@ input[type=search] { font: inherit; padding: 6px 10px; border-radius: 999px; bor
         <p class="muted" style="margin-bottom:0">Messages whose stock handler space the sniffer patch reuses are
         dropped and counted (from firmware v147). Older builds restarted on them.</p></div>
       <div class="card"><h2>Sniffer firmware</h2><dl id="s-fw"></dl></div>
-      <div class="card"><h2>Passive test mode</h2><dl id="s-passive"></dl>
-        <p><button class="icon-btn" id="s-passive-btn">Passive: switch on</button></p>
-        <p class="muted" style="margin-bottom:0">Diagnostic. Keeps the sniffer joined but stops its ping-pong (no
-        TEI learning, no TEI switching): it catches no V2G. Switch on before plugging in; it is held across modem
-        restarts until switched off. A valid passive session shows no learned TEIs.</p></div>
+      <div class="card"><h2>Sniffer mode</h2><dl id="s-passive"></dl>
+        <p><button class="icon-btn" id="s-mode-0">Passive</button> <button class="icon-btn" id="s-mode-1">Ping-pong</button>
+        <button class="icon-btn" id="s-mode-2">Self is car</button> <button class="icon-btn" id="s-mode-3">Self is charger</button></p>
+        <p class="muted" style="margin-bottom:0">Passive: joined and silent on its own TEI, no V2G. Ping-pong: both
+        directions. Self is car / charger: OWN_TEI held at the car's / charger's TEI once learned - only the frames to
+        that side are caught. The TEIs are learned in every mode; a switch takes effect within 100 ms, also in the
+        middle of a session, and is held across modem restarts.</p></div>
     </div>
   </section>
 
@@ -1062,17 +1064,19 @@ function sec(ms) { return fmt(ms / 1000, 1) + " s"; }
 
 function renderSniffer() {
   const sn = S.sniffer, m = S.status && S.status.modem;
-  const STATE = { off: "not read (no sniffer build v146..v199 detected)", reading: "reading…", valid: "valid",
+  const STATE = { off: "not read (no sniffer build v158..v199 detected)", reading: "reading…", valid: "valid",
     notRefreshed: "modem just restarted, block not filled yet", badLayout: "unknown layout (newer firmware?)",
     noAnswer: "no answer to the last read" };
   $("s-note").textContent = !sn ? "No data yet." : sn.state === "valid" ? "" : "Status block: " + (STATE[sn.state] || sn.state)
-    + (sn.state === "off" && m && m.fw === "sniffer" ? " – this sniffer build has no status block (needs v146 or newer)." : "");
-  const p = sn && sn.passive;
-  $("s-passive-btn").textContent = p && p.on ? "Passive: switch off" : "Passive: switch on";
-  dl($("s-passive"), !p ? [] : !p.on ? [["State", "off (normal sniffing)"]] : [
-    ["State", p.ok ? "ON, ping-pong held disarmed" : "ON, disarm NOT confirmed yet", p.ok ? "" : "warnv"],
-    ["This join", p.breached ? "BREACHED: TEIs learned, not a passive run" : "passive (no TEIs learned)", p.breached ? "warnv" : ""],
-    ["Writes / timeouts", p.writes + " / " + p.timeouts, p.timeouts > 0 ? "warnv" : ""],
+    + (sn.state === "off" && m && m.fw === "sniffer" ? " – this sniffer build is not supported (needs v158 or newer)." : "");
+  const MODES = ["passive", "ping-pong", "self is car", "self is charger"];
+  const p = sn && sn.mode;
+  for (let k = 0; k < 4; k++) $("s-mode-" + k).style.fontWeight = p && p.m === k ? "bold" : "normal";
+  dl($("s-passive"), !p ? [] : [
+    ["Mode", MODES[p.m] + (p.m === 1 ? "" : p.ok ? " (confirmed)" : " – NOT confirmed yet"), p.m !== 1 && !p.ok ? "warnv" : ""],
+    ["Firmware reports", sn.b && sn.b.fwMode !== undefined ? MODES[sn.b.fwMode] || sn.b.fwMode : "–"],
+    ["Own TEI", p.breached ? "NOT as the mode wants right now (the firmware corrects it)" : "as the mode wants", p.breached ? "warnv" : ""],
+    ["Re-writes / timeouts", p.writes + " / " + p.timeouts, p.timeouts > 0 ? "warnv" : ""],
   ]);
   const b = sn && sn.b;
   if (!b) {
@@ -1080,10 +1084,17 @@ function renderSniffer() {
     clear($("s-traffic"));
     return;
   }
+  const SRC = ["–", "SDP request", "retry", "tick fallback (SDP missed)"];
   const learned = b.teiB ? "car TEI " + b.teiB + " (charger " + b.teiA + ", own " + b.natOwn + ")"
-    : b.pending ? "car not found yet – fallback, retrying" : b.teiA ? "learning…" : "waiting for the SDP request";
+    : b.pending ? "car not found yet – fallback, retrying" : b.candAge ? "car candidate seen, learning…"
+    : "waiting for the SDP request";
   dl($("s-tei"), [
     ["State", learned],
+    ["Learned by", SRC[b.learnSrc] || b.learnSrc, b.learnSrc === 3 ? "warnv" : ""],
+    ["SDP request seen in this join", b.sdpSeen ? "yes" : "no"],
+    ["First flips by the firmware", b.firstFlips],
+    ["OWN_TEI put back while passive", b.disarmFixes],
+    ["Car TEI corrected by the re-check", b.relearns, b.relearns > 0 ? "warnv" : ""],
     ["Accepting now (own TEI)", b.own],
     ["Car candidates at the lookup", b.cands, b.cands > 1 ? "warnv" : ""],
     ["Found at the SDP request", b.found],
@@ -1133,9 +1144,8 @@ function renderSniffer() {
 // Modem versions: read on demand (one GET_SW broadcast); roles from the station list and the
 // sniffer's learned car TEI
 $("n-readver").onclick = () => { if (socket) { try { socket.send('{"t":"readVersions"}'); } catch (e) {} } };
-$("s-passive-btn").onclick = () => {
-  const p = S.sniffer && S.sniffer.passive, on = !(p && p.on);
-  if (socket) { try { socket.send('{"t":"passive","on":' + on + '}'); } catch (e) {} }
+for (let k = 0; k < 4; k++) $("s-mode-" + k).onclick = () => {
+  if (socket) { try { socket.send('{"t":"mode","m":' + k + '}'); } catch (e) {} }
 };
 $("n-clearver").onclick = () => { if (socket) { try { socket.send('{"t":"clearVersions"}'); } catch (e) {} } };
 function renderVersions(ids = { table: "n-vers", note: "n-vernote", hint: "n-verhint" }) {
@@ -1230,7 +1240,7 @@ function renderConnection() {
   const st = S.status;
   if (!st) return;
   const s = S.session || {}, sdp = s.sdp || {}, m = st.modem;
-  const sn = S.sniffer, b = (sn && sn.b) || {}, p = sn && sn.passive, v = S.versions;
+  const sn = S.sniffer, b = (sn && sn.b) || {}, p = sn && sn.mode, v = S.versions;
   const lc = (x) => (x || "").toLowerCase();
   const stations = (m.joined && m.stations) || [];
   const roleOf = (mac, tei) => {
@@ -1267,7 +1277,8 @@ function renderConnection() {
   }
 
   const learned = b.teiB ? "car " + b.teiB + ", charger " + b.teiA
-    : b.pending ? "car not found, retrying" : b.teiA ? "learning…" : "waiting for SDP";
+      + (b.learnSrc === 3 ? " (tick fallback)" : b.learnSrc === 2 ? " (retry)" : "")
+    : b.pending ? "car not found, retrying" : b.candAge ? "learning…" : "waiting for SDP";
   const rel = (t) => (!t || !b.tJoin ? "–" : sec(t - b.tJoin));
   dl($("k-tei"), [
     ["State", sn && sn.b ? learned : ""],
@@ -1275,7 +1286,7 @@ function renderConnection() {
     ["nat_own (stable)", b.natOwn !== undefined ? b.natOwn : ""],
     ["Car candidates", b.cands, b.cands > 1 ? "warnv" : ""],
     ["Found / missed at SDP", b.found !== undefined ? b.found + " / " + b.miss : "", b.miss > 0 ? "warnv" : ""],
-    ["Retry found / no result", b.retryOk !== undefined ? b.retryOk + " / " + b.retryMisses : ""],
+    ["Retry found / no result", b.retryOk !== undefined ? b.retryOk + " / " + b.retryMiss : ""],
     ["Cleared", b.clears],
     ["Joined at uptime", b.tJoin ? dur(b.tJoin) : "not joined"],
     ["SDP request after join", rel(b.tSdp)],
@@ -1309,7 +1320,7 @@ function renderConnection() {
   dl($("k-sniffer"), [
     ["Status block", !sn ? "" : sn.state === "valid" ? "valid" : sn.state],
     ["Build", b.build, "mono"],
-    ["Passive mode", !p ? "" : !p.on ? "off" : p.ok ? "ON, disarmed" : "ON, NOT confirmed", p && p.on && !p.ok ? "warnv" : ""],
+    ["Sniffer mode", !p ? "" : ["passive", "ping-pong", "self is car", "self is charger"][p.m] + (p.m !== 1 && !p.ok ? " (NOT confirmed)" : ""), p && p.m !== 1 && !p.ok ? "warnv" : ""],
     ["Last version read", v && v.started ? new Date(v.started + S.offset).toLocaleTimeString() : "none"],
     ["Read paused ping-pong", v && v.started ? (v.paused ? "yes" : "no") : "–"],
     ["Resume after read", v && v.resumeFailed ? "NOT confirmed" : v && v.started ? "confirmed" : "–", v && v.resumeFailed ? "warnv" : ""],

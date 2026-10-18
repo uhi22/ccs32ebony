@@ -93,8 +93,17 @@ Planned work, roughly in order. Check an item off with a one-line result; do not
 - [x] **Passive mode is ON by default (`SNIFFER_PASSIVE_DEFAULT 1`) - a diagnostic default.** Set it to 0 for
   normal sniffing once the Alpitronic tests are over (the box then catches V2G again without a tap).
   **Done 2026-10-16:** default is 0 (normal sniffing) - the field build for the Alpitronic must capture V2G.
-- [ ] `arm` must also write OWN_TEI = charger TEI as the first flip; without it the sniffer never receives the
-  unicast V2G frames the ping-pong flips on (field 2026-10-14: armed, 0 flips).
+- [x] `arm` must also write OWN_TEI = charger TEI as the first flip; without it the sniffer never receives the
+  unicast V2G frames the ping-pong flips on (field 2026-10-14: armed, 0 flips). **Superseded 2026-10-18:** sniffer
+  firmware v157 learns the TEIs also while passive and makes the first flip itself; `arm` and `own` are removed,
+  the passive button only writes `armed`. Ebony supports builds v157..v199 only (kept in sync with the firmware).
+  Bench: passive -> learned + silent; passive off mid-session -> V2G decoded at once.
+- [x] **Sniffer modes instead of passive on/off (2026-10-18, firmware v158):** passive / ping-pong / self is car /
+  self is charger (web UI four buttons, serial `mode ...`, JSON `mode`); the version scan restores the mode in use.
+  Ebony supports v158..v199 only.
+- [x] **Serial `rd` / `wr` raw memory access of the sniffer (2026-10-18)** for field work without a Pi or notebook:
+  RDM1/WRM1, one request at a time, refused outside the mapped ranges. Bench: status block read, `armed` write
+  read back, unmapped addresses refused, modem unaffected.
 - [ ] Mock box: replay a recorded session for UI development without hardware.
 - [ ] Field test with a real car and charger (so far: bench sessions with pyPLC only).
 - [ ] **Session tab blocks tab switching during a fast charge (field 2026-10-12, Tesla Supercharger).**

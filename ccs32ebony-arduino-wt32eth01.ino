@@ -431,7 +431,7 @@ static void sendStatus(int id) {
   }
 }
 
-// The sniffer's status block (LocalModem, sniffer builds v146..v199); 2 Hz, after each block read
+// The sniffer's status block (LocalModem, sniffer builds v158..v199); 2 Hz, after each block read
 static bool buildSniffer(char *buf, size_t size) {
   static const char *const STATE[] = {"off", "reading", "valid", "notRefreshed", "badLayout", "noAnswer"};
   JsonOut j(buf, size);
@@ -441,10 +441,9 @@ static bool buildSniffer(char *buf, size_t size) {
   if (modem.modemRestarts() > 0) {
     j.raw(",\"lastRestart\":%lu", (unsigned long)modem.lastRestartUptimeMs());
   }
-  j.raw(",\"passive\":{\"on\":%s,\"ok\":%s,\"writes\":%lu,\"timeouts\":%lu,\"breached\":%s}",
-        modem.passive() ? "true" : "false", modem.passiveConfirmed() ? "true" : "false",
-        (unsigned long)modem.passiveWrites(), (unsigned long)modem.passiveTimeouts(),
-        modem.passiveBreached() ? "true" : "false");
+  j.raw(",\"mode\":{\"m\":%u,\"ok\":%s,\"writes\":%lu,\"timeouts\":%lu,\"breached\":%s}", modem.mode(),
+        modem.modeConfirmed() ? "true" : "false", (unsigned long)modem.modeWrites(),
+        (unsigned long)modem.modeTimeouts(), modem.modeBreached() ? "true" : "false");
   j.raw(",\"teiMask\":%llu", (unsigned long long)modem.teiMask());  // bit set = site held FOLLOW; 0 = all real
   if (modem.blockReads() > 0) {
     const SnifferStatus &b = modem.sniffer();
@@ -458,9 +457,10 @@ static bool buildSniffer(char *buf, size_t size) {
           b.assoc, b.fsm, b.teiA, b.teiB, b.natOwn, b.cands, b.foundAtSdp, b.missAtSdp, b.foundByRetry,
           b.pending, b.retryMisses, b.clears, b.nStations, b.maxTei, b.tcpToCharger, b.tcpToCar,
           (unsigned long)b.frames, b.sdpReq, b.sdpResp);
-    if (b.hasRejected) {
-      j.raw(",\"rej\":%u,\"rejLast\":%u", b.rejectedMme, b.lastRejectedMmtype);
-    }
+    j.raw(",\"rej\":%u,\"rejLast\":%u,\"learnSrc\":%u,\"sdpSeen\":%u,\"candAge\":%u,\"firstFlips\":%u,"
+          "\"disarmFixes\":%u,\"relearns\":%u", b.rejectedMme, b.lastRejectedMmtype, b.learnSrc, b.sdpSeen,
+          b.candAge, b.firstFlips, b.disarmFixes, b.relearns);
+    j.raw(",\"fwMode\":%u", b.mode);
     j.raw("}");
   }
   j.raw("}");
@@ -468,7 +468,7 @@ static bool buildSniffer(char *buf, size_t size) {
 }
 
 static void sendSniffer(int id) {
-  char buf[896];
+  char buf[1024];
   if (buildSniffer(buf, sizeof(buf))) {
     sendTo(id, buf);
   } else {
@@ -568,8 +568,12 @@ static void onWebText(uint8_t id, const char *text) {
   if (strstr(text, "\"t\":\"clearVersions\"") != nullptr) {
     modem.clearVersions();
   }
-  if (strstr(text, "\"t\":\"passive\"") != nullptr) {
-    modem.setPassive(strstr(text, "\"on\":true") != nullptr);
+  const char *mm = strstr(text, "\"t\":\"mode\"");
+  if (mm != nullptr) {
+    const char *v = strstr(text, "\"m\":");
+    if (v != nullptr && v[4] >= '0' && v[4] <= '3') {
+      modem.setMode((uint8_t)(v[4] - '0'));
+    }
     sendSniffer(-1);
   }
   // "ping" only keeps the connection alive
@@ -596,21 +600,32 @@ static void handleCommand(String cmd) {
     Serial.println("Modem versions: list cleared");
   } else if (cmd == "sniffer") {
     modem.printSniffer(Serial);
-  } else if (cmd.startsWith("arm ")) {
-    int a = 0, b = 0, o = 0;
-    if (sscanf(cmd.c_str() + 4, "%d %d %d", &a, &b, &o) == 3 && a > 0 && a < 255 && b > 0 && b < 255 && o > 0 &&
-        o < 255) {
-      modem.armLive((uint8_t)a, (uint8_t)b, (uint8_t)o);
+  } else if (cmd.startsWith("rd ")) {         // rd <addr> [len]   (hex or decimal; len 1..256, default 16)
+    char *end = nullptr;
+    uint32_t addr = strtoul(cmd.c_str() + 3, &end, 0);
+    long len = (end && *end) ? strtol(end, nullptr, 0) : 16;
+    if (end != cmd.c_str() + 3 && len > 0) {
+      modem.memRead(addr, (uint16_t)len);
     } else {
-      Serial.println("usage: arm <charger TEI> <car TEI> <own TEI>");
+      Serial.println("usage: rd <addr> [len]");
     }
-  } else if (cmd.startsWith("own ")) {
-    int t = cmd.substring(4).toInt();
-    if (t >= 0 && t < 255) {
-      modem.holdOwnTei((uint8_t)t);
+  } else if (cmd.startsWith("wr ")) {         // wr <addr> <value> [1|4]   (width default 1)
+    char *end = nullptr, *end2 = nullptr;
+    uint32_t addr = strtoul(cmd.c_str() + 3, &end, 0);
+    uint32_t value = strtoul(end, &end2, 0);
+    long width = (end2 && *end2) ? strtol(end2, nullptr, 0) : 1;
+    if (end != cmd.c_str() + 3 && end2 != end) {
+      modem.memWrite(addr, value, (uint8_t)width);
+    } else {
+      Serial.println("usage: wr <addr> <value> [1|4]");
     }
-  } else if (cmd == "passive on" || cmd == "passive off") {
-    modem.setPassive(cmd.endsWith("on"));
+  } else if (cmd.startsWith("mode ")) {
+    int m = LocalModem::modeFromName(cmd.c_str() + 5);
+    if (m >= 0) {
+      modem.setMode((uint8_t)m);
+    } else {
+      Serial.println("usage: mode passive|pingpong|car|charger");
+    }
   } else if (cmd == "tshow") {
     modem.teiMaskShow(Serial);
   } else if (cmd == "modemreset") {
@@ -637,7 +652,7 @@ static void handleCommand(String cmd) {
       Serial.println("session message truncated");
     }
   } else if (cmd.length() > 0) {
-    Serial.println("commands: log 0|1, hex <n>, stat, modem, modem retag, sniffer, versions, versions clear, passive on|off, arm <charger> <car> <own>, own <tei>|0, tshow, tmask real|follow, tsite <n> real|follow, modemreset, session");
+    Serial.println("commands: log 0|1, hex <n>, stat, modem, modem retag, sniffer, versions, versions clear, mode passive|pingpong|car|charger, rd <addr> [len], wr <addr> <value> [1|4], tshow, tmask real|follow, tsite <n> real|follow, modemreset, session");
   }
 }
 
@@ -665,7 +680,7 @@ void setup() {
                 (unsigned long)ESP.getFreeHeap());
 
   if (SNIFFER_PASSIVE_DEFAULT) {
-    modem.setPassive(true);  // diagnostic only (Alpitronic matrix tests), see ebony_config.example.h
+    modem.setMode(LocalModem::MODE_PASSIVE);  // see ebony_config.example.h
   }
   if (eth.begin()) {
     Serial.print("Ethernet started, promiscuous, own MAC ");

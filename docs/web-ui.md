@@ -85,9 +85,10 @@ narrow screens). The last tab and the theme are remembered on the device.
    for the read (about 0.3 s: pause, broadcast, 200 ms collection, resume) and the page says so.
    V2G frames of that moment are not caught; the charging session itself is not affected.
 7. **Sniffer**
-   The sniffer firmware's status block (sniffer builds v146..v199), refreshed every 0.5 s: TEI
-   learning (state, car / charger / own TEI, candidates, found or missed at the SDP request,
-   fallback retries), timing after the join (SDP request, car TEI learned, first SDP response),
+   The sniffer firmware's status block (sniffer builds v158..v199), refreshed every 0.5 s: TEI
+   learning (state, car / charger / own TEI, learned by SDP request / retry / tick fallback, SDP seen,
+   candidates, found or missed at the SDP request, fallback retries, first flips by the firmware, OWN_TEI
+   put back while passive, car TEI corrected by the re-check), timing after the join (SDP request, car TEI learned, first SDP response),
    join state, traffic caught (all frames, V2G TCP to the charger and to the car, SDP) with rates,
    foreign management messages dropped (v147+), and the firmware (build, modem uptime, time since
    its last restart, restarts seen by the box). Unexpected values (a miss, more than one car
@@ -144,13 +145,16 @@ last seen), `sdp`, `hs` (offered protocols, result, schema), `cpd` (request and 
 limits), `ident` (EVCCID, SessionID, modem MACs, NID, NMK), `energy` (Wh, Ah, peak W, seconds
 with current), `atten` (sounds, dB per carrier group).
 
-`sniffer`: `ms`, `state` (`off` no sniffer build v146..v199 / `reading` / `valid` / `notRefreshed` modem
+`sniffer`: `ms`, `state` (`off` no sniffer build v157..v199 / `reading` / `valid` / `notRefreshed` modem
 just restarted / `badLayout` / `noAnswer`), `reads`, `timeouts`, `restarts` (modem restarts seen by the
 box), `lastRestart` (modem uptime ms at the last one), and `b` with the decoded block: `build`, `size`,
 `up` (modem uptime ms), `seq` (10 Hz since the modem's last firmware start), `tJoin` `tSdp` `tLearned`
 `tFirstResp` (modem uptime ms, 0 = not yet), `own`, `cco`, `assoc`, `fsm`, `teiA`, `teiB`, `natOwn`,
 `cands`, `found`, `miss`, `retryOk`, `pending`, `retryMiss`, `clears`, `nSt`, `maxTei`, `tcpCharger`,
-`tcpCar`, `frames`, `sdpReq`, `sdpResp`, and from v147 `rej` and `rejLast` (MMTYPE). The block's meaning
+`tcpCar`, `frames`, `sdpReq`, `sdpResp`, `rej`, `rejLast` (MMTYPE), `learnSrc` (0 none, 1 SDP request, 2 retry,
+3 tick fallback), `sdpSeen`, `candAge`, `firstFlips`, `disarmFixes`, `relearns`, `fwMode` (v158, the mode as the firmware reports it).
+`mode`: `m` (0 passive, 1 ping-pong, 2 self is car, 3 self is charger), `ok`, `writes`, `timeouts`, `breached`
+(OWN_TEI not as the mode wants right now). Client -> box: `{"t":"mode","m":0..3}`. The block's meaning
 is defined by the sniffer firmware (see concept.md, "Talking to the local modem"); the times in `b`
 are the modem's, not the box's. Added without a protocol version change: an older page ignores it.
 
