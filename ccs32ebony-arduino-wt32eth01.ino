@@ -431,7 +431,7 @@ static void sendStatus(int id) {
   }
 }
 
-// The sniffer's status block (LocalModem, sniffer builds v158..v199); 2 Hz, after each block read
+// The sniffer's status block (LocalModem, sniffer builds v158..v199) or status frame (v214..v299); 2 Hz
 static bool buildSniffer(char *buf, size_t size) {
   static const char *const STATE[] = {"off", "reading", "valid", "notRefreshed", "badLayout", "noAnswer"};
   JsonOut j(buf, size);
@@ -445,6 +445,22 @@ static bool buildSniffer(char *buf, size_t size) {
         modem.modeConfirmed() ? "true" : "false", (unsigned long)modem.modeWrites(),
         (unsigned long)modem.modeTimeouts(), modem.modeBreached() ? "true" : "false");
   j.raw(",\"teiMask\":%llu", (unsigned long long)modem.teiMask());  // bit set = site held FOLLOW; 0 = all real
+  if (modem.statusFrameSupported()) {
+    static const char *const SF_STATE[] = {"off", "enabling", "live", "lost", "badLayout"};
+    j.raw(",\"sf\":{\"state\":\"%s\",\"en\":%s,\"frames\":%lu,\"missed\":%lu,\"writes\":%lu,\"timeouts\":%lu,\"restarts\":%lu",
+          SF_STATE[(int)modem.statusFrameState(millis())], modem.statusFrameConfirmed() ? "true" : "false",
+          (unsigned long)modem.statusFrameCount(), (unsigned long)modem.statusFrameMissed(),
+          (unsigned long)modem.statusFrameWrites(), (unsigned long)modem.statusFrameTimeouts(),
+          (unsigned long)modem.statusFrameRestarts());
+    if (modem.statusFrameValid()) {
+      const homeplug::StatusFrame &f = modem.statusFrame();
+      j.raw(",\"seq\":%lu,\"seen\":%lu,\"cnf\":%lu,\"ok\":%lu,\"dropped\":%lu,\"beacon\":%lu,\"sof\":%lu,\"sack\":%lu,\"ship\":%lu",
+            (unsigned long)f.seq, (unsigned long)f.seen, (unsigned long)f.cnfCnt, (unsigned long)f.okCnt,
+            (unsigned long)f.drop, (unsigned long)f.beacon, (unsigned long)f.sof, (unsigned long)f.sack,
+            (unsigned long)f.ship);
+    }
+    j.raw("}");
+  }
   if (modem.blockReads() > 0) {
     const SnifferStatus &b = modem.sniffer();
     j.raw(",\"b\":{\"build\":%u,\"size\":%u,\"up\":%lu,\"seq\":%lu,\"tJoin\":%lu,\"tSdp\":%lu,\"tLearned\":%lu,"

@@ -94,6 +94,9 @@ narrow screens). The last tab and the theme are remembered on the device.
    its last restart, restarts seen by the box). Unexpected values (a miss, more than one car
    candidate, dropped messages, restarts) are shown in red. When a car TEI is known, the status bar
    shows it next to "Joined session network".
+   With an unjoined sniffer build (v214..v299) the tab shows the modem's status frame instead: its state, the time
+   since the last modem start, key messages seen / confirmed / installed, frames dropped by the modem, restarts, and
+   beacons, start-of-frame, selective acknowledges and decrypted frames with rates. The box switches the frame on.
 7. **Log**
    All SLAC, SDP and V2G messages of the session, starting with its first SLAC message.
    Filterable (SLAC / SDP / V2G / errors) and searchable; the table shows the newest 500 matching
@@ -157,6 +160,10 @@ box), `lastRestart` (modem uptime ms at the last one), and `b` with the decoded 
 (OWN_TEI not as the mode wants right now). Client -> box: `{"t":"mode","m":0..3}`. The block's meaning
 is defined by the sniffer firmware (see concept.md, "Talking to the local modem"); the times in `b`
 are the modem's, not the box's. Added without a protocol version change: an older page ignores it.
+With an unjoined sniffer build (v214..v299) the message also carries `sf`: `state` (`enabling`, `live`, `lost`,
+`badLayout`), `en` (the last switch-on write was read back as 1), `frames`, `missed`, `writes`, `timeouts`, `restarts`
+(counted by the box), and after the first frame `seq` (250 ms since the modem's last firmware start), `seen`, `cnf`, `ok`,
+`dropped`, `beacon`, `sof`, `sack`, `ship` (the modem's counters since that start).
 
 All times are box milliseconds. The UI derives the session state: running while messages
 arrive, then "stopped in <phase>" or "finished" after 10 s of silence.

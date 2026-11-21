@@ -23,6 +23,10 @@
 // The status block is a contract with the sniffer firmware (source of truth: qca7000-transparency
 // plans/interface-ardut-ebony.md): address 0x22c2a8, magic 'EBS1', layout 1, 80 bytes, v157 fields at 0x44..0x4a,
 // the mode at 0x4d (v158). Only builds v158..v199 are supported (firmware and ebony are kept in sync).
+//
+// Unjoined sniffer builds v214..v299 have no status block. They send a status frame instead (contract section 7):
+// 0x88E1, MMTYPE 0x0000, MAGIC "STAT", every 250 ms, only while the RAM byte enableStatusFrame (0x233838) is 1. Every
+// firmware start clears that byte, so the box writes 1 whenever no status frame arrived for 1 s.
 
 #pragma once
 
@@ -102,6 +106,19 @@ public:
   bool takeBlockUpdate() { bool u = _blockUpdated; _blockUpdated = false; return u; }
   void printSniffer(Print &out) const;
 
+  // Status frame of the unjoined sniffer builds v214..v299
+  enum class StatusFrameState : uint8_t { Off, Enabling, Live, Lost, BadLayout };
+  bool statusFrameSupported() const;
+  StatusFrameState statusFrameState(uint32_t now) const;
+  bool statusFrameValid() const { return _stValid; }                     // statusFrame() holds a decoded frame
+  const homeplug::StatusFrame &statusFrame() const { return _st; }
+  bool statusFrameConfirmed() const { return _stEnableOk; }              // the last switch-on write was read back as 1
+  uint32_t statusFrameCount() const { return _stFrames; }
+  uint32_t statusFrameMissed() const { return _stMissed; }               // frames missing in the SEQ sequence
+  uint32_t statusFrameWrites() const { return _stWrites; }               // switch-on writes sent
+  uint32_t statusFrameTimeouts() const { return _stTimeouts; }           // switch-on writes without an answer
+  uint32_t statusFrameRestarts() const { return _stRestarts; }           // SEQ drops = modem restarts seen
+
   // Version scan: one GET_SW.REQ broadcast, answers collected for VERSION_SCAN_MS. The list accumulates
   // over the scans (RAM only) until clearVersions().
   void startVersionScan(uint32_t now);
@@ -165,6 +182,10 @@ private:
   static constexpr uint32_t ADDR_OWN_TEI = 0x8bdec;
   static constexpr uint8_t MAX_VERSIONS = 16;
   static constexpr uint32_t PASSIVE_INTERVAL_MS = 500;
+  static constexpr int STATUS_FRAME_BUILD_MIN = 214, STATUS_FRAME_BUILD_MAX = 299;  // contract section 7
+  static constexpr uint32_t ADDR_ENABLE_STATUS_FRAME = 0x233838;
+  static constexpr uint32_t STATUS_FRAME_TIMEOUT_MS = 1000;   // no frame for this long: write enable again
+  static constexpr uint32_t STATUS_FRAME_UI_MS = 500;         // the UI gets the frame at 2 Hz
 
   void send(const uint8_t *frame, uint16_t len);
   void forget();
@@ -180,6 +201,9 @@ private:
   bool passiveConfirm(const uint8_t *readBack);
   void memStep(uint32_t now);
   void memAnswer(const uint8_t *content);
+  void statusFrameStep(uint32_t now);
+  void onStatusFrame(const homeplug::StatusFrame &f, uint32_t now);
+  void resetStatusFrame();
 
   EthSniffer &_eth;
   uint32_t _lastQueryMs = 0;
@@ -225,7 +249,7 @@ private:
   ModemVersion _versions[MAX_VERSIONS] = {};
   bool _versionUpdated = false;
 
-  enum class HoldWrite : uint8_t { None, Armed, Queued };
+  enum class HoldWrite : uint8_t { None, Armed, Queued, StatusFrame };
   static constexpr uint32_t TEI_SLOT_REAL = 0x0022c4ea;   // slot value -> site reads nat_own (baked default)
   static constexpr uint32_t TEI_SLOT_FOLLOW = 0x0008bdd8;  // slot value -> site reads OWN_TEI (the override)
   static const uint32_t TEI_SLOT_ADDR[TEI_SITES];          // the 41 slot write addresses (local_modem.cpp)
@@ -238,6 +262,12 @@ private:
   HoldWrite _holdWrite = HoldWrite::None;   // which mode / queued write is outstanding
   uint32_t _lastPassiveMs = 0;
   uint32_t _modeWrites = 0, _modeTimeouts = 0;
+
+  homeplug::StatusFrame _st;
+  bool _stValid = false, _stSeen = false, _stBadLayout = false, _stEnableOk = false, _stWriteSent = false;
+  uint32_t _stLastFrameMs = 0, _stLastWriteMs = 0, _stLastUiMs = 0;
+  uint32_t _stFrames = 0, _stMissed = 0, _stWrites = 0, _stTimeouts = 0, _stRestarts = 0;
+  StatusFrameState _stLastState = StatusFrameState::Off;
 
   static constexpr uint16_t MEM_READ_MAX = 256;
   bool _memActive = false, _memPending = false, _memWrite = false;

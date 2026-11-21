@@ -94,6 +94,27 @@ uint16_t composeDeviceResetReq(uint8_t *frame, const uint8_t dst[6], const uint8
 // Only the MMTYPE is checked, as for the tag. Returns true if frame is a GET_SW.CNF.
 bool parseSnifferCnf(const uint8_t *frame, uint16_t len, uint8_t out[16]);
 
+// Status frame of the unjoined sniffer firmware (builds v214..v299): MMTYPE 0x0000, MAGIC "STAT", 13 little-endian
+// words from frame offset 17. The modem sends it to the Ethernet broadcast address every 250 ms while it is switched
+// on. The counters count since the modem's last firmware start.
+constexpr uint32_t STATUS_FRAME_LAYOUT = 8;
+struct StatusFrame {
+  uint32_t layoutVer = 0;
+  uint32_t seq = 0;         // +1 per frame since the last firmware start (250 ms each)
+  uint32_t timerTicks = 0;  // free-running 25 MHz timer of the modem, wraps every 172 s
+  uint32_t seen = 0;        // encrypted key messages seen
+  uint32_t cnfCnt = 0;      // key confirmations recognised
+  uint32_t okCnt = 0;       // session keys installed
+  uint32_t drop = 0;        // frames dropped on the way to the host
+  uint32_t beacon = 0;      // HomePlug beacons
+  uint32_t sof = 0;         // start-of-frame delimiters
+  uint32_t sack = 0;        // selective acknowledges
+  uint32_t ship = 0;        // decrypted IPv6 frames delivered to the host
+};
+
+// True if frame carries the MAGIC. All fields are filled only for layoutVer == STATUS_FRAME_LAYOUT.
+bool parseStatusFrame(const uint8_t *frame, uint16_t len, StatusFrame &out);
+
 // VS_NW_INFO.REQ (0xA038) to dst. Returns the frame length.
 uint16_t composeVsNwInfoReq(uint8_t *frame, const uint8_t dst[6], const uint8_t src[6]);
 

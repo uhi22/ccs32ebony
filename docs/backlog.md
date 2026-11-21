@@ -105,7 +105,9 @@ Planned work, roughly in order. Check an item off with a one-line result; do not
   RDM1/WRM1, one request at a time, refused outside the mapped ranges. Bench: status block read, `armed` write
   read back, unmapped addresses refused, modem unaffected.
 - [ ] Mock box: replay a recorded session for UI development without hardware.
-- [ ] Field test with a real car and charger (so far: bench sessions with pyPLC only).
+- [x] Field test with a real car and charger: several successful sessions, Hyundai Ioniq on an
+  alpitronics charger, 2026-11-21 (before that: bench sessions with a Foccci as car and pyPLC as
+  charger).
 - [ ] **Session tab blocks tab switching during a fast charge (field 2026-10-12, Tesla Supercharger).**
   CurrentDemand time and count kept updating (~30 CurrentDemand per second), but tapping another tab
   only grayed its name briefly; the tab stayed on "Session" for 1-2 min until the session was
@@ -171,6 +173,8 @@ Planned work, roughly in order. Check an item off with a one-line result; do not
   4. Credentials: in `ebony_config.h` at build time, or entered on the page and stored in NVS
      (needs the settings page below)?
 
+- [x] **Status frame of the unjoined sniffer builds v214..v299:** the box switches it on (`enableStatusFrame`, again
+  after 1 s without a frame), decodes layout 8 and shows it on the Sniffer tab, the Connection tab and the serial `sniffer` output.
 - [ ] ISO 15118-2 decoding
 - [ ] Keep earlier sessions in the browser (selectable list) instead of starting each session
   with an empty log

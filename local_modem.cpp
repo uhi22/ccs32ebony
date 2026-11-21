@@ -28,6 +28,7 @@ void LocalModem::retag() {
   _tagRequests = 0;
   _tag[0] = '\0';
   _tagDumped = false;
+  resetStatusFrame();
 }
 
 void LocalModem::forget() {
@@ -40,6 +41,76 @@ void LocalModem::forget() {
   _tagRequests = 0;
   _tag[0] = '\0';
   _nwInfoValid = false;
+  resetStatusFrame();
+}
+
+void LocalModem::resetStatusFrame() {
+  _stValid = _stSeen = _stBadLayout = _stEnableOk = _stWriteSent = false;
+}
+
+bool LocalModem::statusFrameSupported() const {
+  int build = homeplug::snifferBuild(_tag);
+  return _macKnown && _firmware == Firmware::Sniffer && build >= STATUS_FRAME_BUILD_MIN &&
+         build <= STATUS_FRAME_BUILD_MAX;
+}
+
+LocalModem::StatusFrameState LocalModem::statusFrameState(uint32_t now) const {
+  if (!statusFrameSupported()) {
+    return StatusFrameState::Off;
+  }
+  if (!_stSeen) {
+    return StatusFrameState::Enabling;
+  }
+  if (now - _stLastFrameMs >= STATUS_FRAME_TIMEOUT_MS) {
+    return StatusFrameState::Lost;
+  }
+  return _stBadLayout ? StatusFrameState::BadLayout : StatusFrameState::Live;
+}
+
+// Switches the status frame on and keeps it on: one write when none arrived for 1 s, at most one per second, and only
+// while no other GET_SW request is outstanding (the replies carry no address).
+void LocalModem::statusFrameStep(uint32_t now) {
+  StatusFrameState s = statusFrameState(now);
+  if (s != _stLastState) {
+    static const char *const NAME[] = {"off", "switching on", "live", "lost", "unknown layout"};
+    Serial.printf("Modem: status frame %s\n", NAME[(int)s]);
+    _stLastState = s;
+    _blockUpdated = true;
+  }
+  if (s == StatusFrameState::Off || s == StatusFrameState::Live || s == StatusFrameState::BadLayout ||
+      !_eth.linkUp() || _readPending || _writePending || _memPending || _holdWrite != HoldWrite::None ||
+      _scanPhase != ScanPhase::Idle || (_stWriteSent && now - _stLastWriteMs < STATUS_FRAME_TIMEOUT_MS)) {
+    return;
+  }
+  _stWriteSent = true;
+  _stLastWriteMs = now;
+  _stWrites++;
+  _holdWrite = HoldWrite::StatusFrame;
+  sendWrite(ADDR_ENABLE_STATUS_FRAME, (uint8_t)1, now);
+}
+
+void LocalModem::onStatusFrame(const homeplug::StatusFrame &f, uint32_t now) {
+  _lastAnswerMs = now;
+  _stSeen = true;
+  _stLastFrameMs = now;
+  _stFrames++;
+  _stBadLayout = f.layoutVer != homeplug::STATUS_FRAME_LAYOUT;
+  if (_stBadLayout) {
+    return;
+  }
+  if (_stValid && f.seq < _st.seq) {
+    _stRestarts++;
+    Serial.printf("Modem: sniffer restarted (status frame seq %lu -> %lu)\n", (unsigned long)_st.seq,
+                  (unsigned long)f.seq);
+  } else if (_stValid && f.seq > _st.seq + 1) {
+    _stMissed += f.seq - _st.seq - 1;
+  }
+  _st = f;
+  _stValid = true;
+  if (now - _stLastUiMs >= STATUS_FRAME_UI_MS) {
+    _stLastUiMs = now;
+    _blockUpdated = true;
+  }
 }
 
 void LocalModem::sendBlockRead() {
@@ -366,6 +437,12 @@ void LocalModem::passiveStep(uint32_t now) {
   if (_holdWrite != HoldWrite::None) {
     if (now - _writeSentMs >= WRITE_TIMEOUT_MS) {
       _writePending = false;
+      if (_holdWrite == HoldWrite::StatusFrame) {
+        _holdWrite = HoldWrite::None;
+        _stEnableOk = false;
+        _stTimeouts++;
+        return;
+      }
       if (_holdWrite == HoldWrite::Queued && ++_queueTries >= RESUME_TRIES) {
         Serial.printf("Modem: queued write %u NOT confirmed, giving up\n", _queuePos);
         _queueLen = 0;
@@ -398,7 +475,9 @@ void LocalModem::passiveStep(uint32_t now) {
 bool LocalModem::passiveConfirm(const uint8_t *readBack) {
   HoldWrite w = _holdWrite;
   _holdWrite = HoldWrite::None;
-  if (w == HoldWrite::Armed) {
+  if (w == HoldWrite::StatusFrame) {
+    _stEnableOk = readBack[0] == 1;
+  } else if (w == HoldWrite::Armed) {
     bool ok = readBack[0] == _mode;
     if (ok && !_modeOk) {
       Serial.printf("Modem: sniffer mode %s (confirmed)\n", modeName(_mode));
@@ -512,6 +591,7 @@ void LocalModem::cycle(uint32_t now) {
     passiveStep(now);
     memStep(now);
   }
+  statusFrameStep(now);
 
   // Status block: its own pace, one "RDM1" request outstanding at a time
   if (_readPending && now - _readSentMs >= BLOCK_READ_TIMEOUT_MS) {
@@ -566,6 +646,12 @@ void LocalModem::cycle(uint32_t now) {
 }
 
 bool LocalModem::handleFrame(const uint8_t *frame, uint16_t len, uint32_t now) {
+  // The status frame goes to the Ethernet broadcast address, so it comes before the "addressed to us" check
+  homeplug::StatusFrame statusFrame;
+  if (_macKnown && len >= 14 && memcmp(frame + 6, _mac, 6) == 0 && homeplug::parseStatusFrame(frame, len, statusFrame)) {
+    onStatusFrame(statusFrame, now);
+    return true;
+  }
   if (len < homeplug::MIN_ETH_FRAME_LEN || homeplug::etherType(frame) != homeplug::ETHERTYPE_HOMEPLUG ||
       memcmp(frame, _eth.ownMac(), 6) != 0) {
     return false;  // not addressed to us
@@ -736,6 +822,20 @@ void LocalModem::printSniffer(Print &out) const {
   out.printf("Sniffer status block: %s, %lu read, %lu timeouts, %lu modem restarts seen\n",
              STATE[(int)_blockState], (unsigned long)_blockReads, (unsigned long)_blockTimeouts,
              (unsigned long)_restarts);
+  if (statusFrameSupported()) {
+    static const char *const NAME[] = {"off", "switching on", "live", "lost", "unknown layout"};
+    out.printf("Status frame: %s, %lu received, %lu missed, %lu switch-on writes (%s), %lu timeouts, %lu modem restarts seen\n",
+               NAME[(int)statusFrameState(millis())], (unsigned long)_stFrames, (unsigned long)_stMissed,
+               (unsigned long)_stWrites, _stEnableOk ? "confirmed" : "not confirmed", (unsigned long)_stTimeouts,
+               (unsigned long)_stRestarts);
+    if (_stValid) {
+      out.printf("  seq %lu (%lu s since the modem's firmware start), key messages seen %lu, confirmed %lu, installed %lu\n",
+                 (unsigned long)_st.seq, (unsigned long)(_st.seq / 4), (unsigned long)_st.seen,
+                 (unsigned long)_st.cnfCnt, (unsigned long)_st.okCnt);
+      out.printf("  beacons %lu, SOF %lu, SACK %lu, shipped to the host %lu, dropped %lu\n", (unsigned long)_st.beacon,
+                 (unsigned long)_st.sof, (unsigned long)_st.sack, (unsigned long)_st.ship, (unsigned long)_st.drop);
+    }
+  }
   out.printf("  MODE %s%s, %lu re-writes, %lu timeouts%s (firmware reports %s)\n", modeName(_mode),
              _mode == MODE_PINGPONG ? "" : (_modeOk ? " (confirmed)" : " NOT confirmed"), (unsigned long)_modeWrites,
              (unsigned long)_modeTimeouts, modeBreached() ? ", OWN_TEI NOT as the mode wants right now" : "",

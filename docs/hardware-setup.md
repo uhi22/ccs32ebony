@@ -75,7 +75,8 @@ frames still get their `F` lines.
 Serial commands: `log 0|1` (one line per frame on/off), `hex <n>` (also dump the first n bytes of
 each frame), `stat` (summary line now), `modem` (local modem status), `modem retag` (ask for the
 sniffer build tag again), `session` (print the session state as the UI gets it), `sniffer` (status block),
-`versions` / `versions clear` (version scan). Sniffer firmware controls (builds v158..v199 only, kept in sync with
+`versions` / `versions clear` (version scan). With an unjoined sniffer build (v214..v299) the box switches the
+modem's status frame on and `sniffer` prints it. Sniffer firmware controls (builds v158..v199 only, kept in sync with
 the firmware; see `LocalModem` in `local_modem.h`): `mode passive|pingpong|car|charger` - passive = joined, learning
 the TEIs, silent on the real TEI; pingpong = both directions (the firmware makes the first flip at once, also
 mid-session); car / charger = OWN_TEI held at the car's / the charger's TEI once learned, one direction only. Takes

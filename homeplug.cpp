@@ -141,6 +141,38 @@ bool parseSnifferCnf(const uint8_t *frame, uint16_t len, uint8_t out[16]) {
   return true;
 }
 
+bool parseStatusFrame(const uint8_t *frame, uint16_t len, StatusFrame &out) {
+  static constexpr uint8_t OFS_STAT = 17;
+  static constexpr uint8_t STAT_WORDS = 13;
+  if (len < OFS_STAT + 8 || etherType(frame) != ETHERTYPE_HOMEPLUG || frame[OFS_MMV] != MMV_AV10 ||
+      mmtype(frame) != 0x0000 || memcmp(&frame[OFS_STAT], "STAT", 4) != 0) {
+    return false;
+  }
+  uint32_t w[STAT_WORDS] = {};
+  uint8_t n = (len - OFS_STAT) / 4 < STAT_WORDS ? (len - OFS_STAT) / 4 : STAT_WORDS;
+  for (uint8_t i = 0; i < n; i++) {
+    const uint8_t *p = &frame[OFS_STAT + 4 * i];
+    w[i] = p[0] | (p[1] << 8) | (p[2] << 16) | ((uint32_t)p[3] << 24);
+  }
+  out = StatusFrame();
+  out.layoutVer = w[1];
+  if (out.layoutVer != STATUS_FRAME_LAYOUT || n < STAT_WORDS) {
+    out.layoutVer = out.layoutVer == STATUS_FRAME_LAYOUT ? 0 : out.layoutVer;  // a short frame is not usable either
+    return true;
+  }
+  out.seq = w[2];
+  out.timerTicks = w[3];
+  out.seen = w[4];
+  out.cnfCnt = w[5];
+  out.okCnt = w[6];
+  out.drop = w[8];
+  out.beacon = w[9];
+  out.sof = w[10];
+  out.sack = w[11];
+  out.ship = w[12];
+  return true;
+}
+
 bool parseSnifferTagCnf(const uint8_t *frame, uint16_t len, char tag[17]) {
   uint8_t raw[16];
   if (!parseSnifferCnf(frame, len, raw)) {

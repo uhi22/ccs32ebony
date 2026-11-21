@@ -352,6 +352,8 @@ input[type=search] { font: inherit; padding: 6px 10px; border-radius: 999px; bor
   <section class="tab" id="tab-sniffer">
     <p class="muted" id="s-note"></p>
     <div class="grid">
+      <div class="card" style="display:none"><h2>Status frame</h2><dl id="s-sf"></dl></div>
+      <div class="card" style="display:none"><h2>Heard on the powerline</h2><table id="s-sf-traffic"></table></div>
       <div class="card"><h2>TEI learning</h2><dl id="s-tei"></dl></div>
       <div class="card"><h2>Timing after the join</h2><dl id="s-time"></dl></div>
       <div class="card"><h2>Join state</h2><dl id="s-join"></dl></div>
@@ -1054,6 +1056,9 @@ let prevStatus = null, rates = {};
 const SNIFFER_RATES = ["frames", "tcpCharger", "tcpCar", "sdpReq", "sdpResp"];
 let prevSniffer = null;
 const snifferRates = {};
+// Status frame of the unjoined sniffer builds v214..v299; rates from SEQ (one frame = 250 ms)
+const SF_RATES = ["beacon", "sof", "sack", "ship"];
+const sfRates = {};
 // The management messages the sniffer drops (v147, backlog-0144); names from open-plc-utils
 const MME_NAMES = { 0x600C: "CM_GET_KEY", 0xA004: "VS_WR_MEM", 0xA008: "VS_RD_MEM", 0xA010: "VS_GET_NVM",
   0xA02C: "VS_WD_RPT", 0xA040: "VS_CP_RPT", 0xA07C: "VS_FAC_DEFAULTS", 0xA094: "VS_SET_LED_BEHAVIOR",
@@ -1062,13 +1067,48 @@ const MME_NAMES = { 0x600C: "CM_GET_KEY", 0xA004: "VS_WR_MEM", 0xA008: "VS_RD_ME
 function hex4(v) { return "0x" + v.toString(16).toUpperCase().padStart(4, "0"); }
 function sec(ms) { return fmt(ms / 1000, 1) + " s"; }
 
+function renderStatusFrame(sf) {
+  const STATE = { enabling: "switching on…", live: "live", lost: "no frame for 1 s, switching on again",
+    badLayout: "unknown layout (newer firmware?)" };
+  const n = (v) => (v === undefined ? "–" : v);
+  dl($("s-sf"), [
+    ["State", STATE[sf.state] || sf.state, sf.state === "live" ? "" : "warnv"],
+    ["Since the last modem start", sf.seq === undefined ? "–" : dur(sf.seq * 250)],
+    ["Key messages seen", n(sf.seen)],
+    ["Key confirmations", n(sf.cnf)],
+    ["Session keys installed", n(sf.ok)],
+    ["Frames dropped by the modem", n(sf.dropped), sf.dropped > 0 ? "warnv" : ""],
+    ["Modem restarts seen", sf.restarts, sf.restarts > 0 ? "warnv" : ""],
+    ["Status frames received / missed", sf.frames + " / " + sf.missed, sf.missed > 0 ? "warnv" : ""],
+    ["Switch-on writes / timeouts", sf.writes + " / " + sf.timeouts, sf.timeouts > 0 ? "warnv" : ""],
+  ]);
+  const t = clear($("s-sf-traffic"));
+  const hr = el("tr");
+  for (const x of ["", "count", "per second"]) hr.appendChild(el("th", x ? "num" : "", x));
+  t.appendChild(hr);
+  for (const [k, label] of [["beacon", "Beacons"], ["sof", "Start of frame"], ["sack", "Selective acknowledge"],
+      ["ship", "Decrypted frames sent to the box"]]) {
+    const tr = el("tr");
+    tr.append(el("td", "", label), el("td", "num", n(sf[k])), el("td", "num", sfRates[k] !== undefined ? fmt(sfRates[k], 1) : "–"));
+    t.appendChild(tr);
+  }
+}
+
 function renderSniffer() {
   const sn = S.sniffer, m = S.status && S.status.modem;
-  const STATE = { off: "not read (no sniffer build v158..v199 detected)", reading: "reading…", valid: "valid",
+  const sf = sn && sn.sf;
+  for (const id of ["s-sf", "s-sf-traffic"]) $(id).closest(".card").style.display = sf ? "" : "none";
+  for (const id of ["s-tei", "s-time", "s-join", "s-traffic", "s-rej", "s-fw", "s-passive"]) $(id).closest(".card").style.display = sf ? "none" : "";
+  if (sf) {
+    $("s-note").textContent = "";
+    renderStatusFrame(sf);
+    return;
+  }
+  const STATE = { off: "not read (no sniffer build v158..v199 or v214..v299 detected)", reading: "reading…", valid: "valid",
     notRefreshed: "modem just restarted, block not filled yet", badLayout: "unknown layout (newer firmware?)",
     noAnswer: "no answer to the last read" };
   $("s-note").textContent = !sn ? "No data yet." : sn.state === "valid" ? "" : "Status block: " + (STATE[sn.state] || sn.state)
-    + (sn.state === "off" && m && m.fw === "sniffer" ? " – this sniffer build is not supported (needs v158 or newer)." : "");
+    + (sn.state === "off" && m && m.fw === "sniffer" ? " – this sniffer build is not supported." : "");
   const MODES = ["passive", "ping-pong", "self is car", "self is charger"];
   const p = sn && sn.mode;
   for (let k = 0; k < 4; k++) $("s-mode-" + k).style.fontWeight = p && p.m === k ? "bold" : "normal";
@@ -1306,7 +1346,9 @@ function renderConnection() {
     r.append(el("td", "", label), el("td", "num", val(sCount)), el("td", "num", rat(sRate)), el("td", "num", val(bCount)), el("td", "num", rat(bRate)));
     t.appendChild(r);
   };
+  const sf = sn && sn.sf;
   row("all frames", b.frames, snifferRates.frames, st.rx, rates.rx);
+  if (sf) row("decrypted frames sent to the box", sf.ship, sfRates.ship);
   row("V2G TCP to charger", b.tcpCharger, snifferRates.tcpCharger);
   row("V2G TCP to car", b.tcpCar, snifferRates.tcpCar);
   row("SDP request", b.sdpReq, snifferRates.sdpReq);
@@ -1318,16 +1360,16 @@ function renderConnection() {
   row("dropped by box", undefined, undefined, st.drop, rates.drop);
 
   dl($("k-sniffer"), [
-    ["Status block", !sn ? "" : sn.state === "valid" ? "valid" : sn.state],
+    sf ? ["Status frame", sf.state, sf.state === "live" ? "" : "warnv"] : ["Status block", !sn ? "" : sn.state === "valid" ? "valid" : sn.state],
     ["Build", b.build, "mono"],
     ["Sniffer mode", !p ? "" : ["passive", "ping-pong", "self is car", "self is charger"][p.m] + (p.m !== 1 && !p.ok ? " (NOT confirmed)" : ""), p && p.m !== 1 && !p.ok ? "warnv" : ""],
     ["Last version read", v && v.started ? new Date(v.started + S.offset).toLocaleTimeString() : "none"],
     ["Read paused ping-pong", v && v.started ? (v.paused ? "yes" : "no") : "–"],
     ["Resume after read", v && v.resumeFailed ? "NOT confirmed" : v && v.started ? "confirmed" : "–", v && v.resumeFailed ? "warnv" : ""],
     ["TEI sites held", sn && sn.teiMask ? "some (" + sn.teiMask + ")" : "none"],
-    ["Uptime / since restart", b.up !== undefined ? dur(b.up) + " / " + dur(b.seq * 100) : "–"],
-    ["Restarts (box)", sn ? sn.restarts + (sn.restarts && sn.lastRestart !== undefined ? ", at " + dur(sn.lastRestart) : "") : "–",
-      sn && sn.restarts > 0 ? "warnv" : ""],
+    ["Uptime / since restart", b.up !== undefined ? dur(b.up) + " / " + dur(b.seq * 100) : sf && sf.seq !== undefined ? "– / " + dur(sf.seq * 250) : "–"],
+    ["Restarts (box)", sf ? sf.restarts : sn ? sn.restarts + (sn.restarts && sn.lastRestart !== undefined ? ", at " + dur(sn.lastRestart) : "") : "–",
+      (sf ? sf.restarts : sn && sn.restarts) > 0 ? "warnv" : ""],
     ["Dropped MMEs", b.rej === undefined ? "n/a (v147+)" : b.rej + (b.rej ? ", last " + hex4(b.rejLast) : ""), b.rej > 0 ? "warnv" : ""],
   ]);
 
@@ -1522,6 +1564,10 @@ function connect() {
         if (prevSniffer && prevSniffer.b && m.b && m.b.seq >= prevSniffer.b.seq) {
           const dt = (m.ms - prevSniffer.ms) / 1000;
           for (const k of SNIFFER_RATES) snifferRates[k] = dt > 0 ? Math.max(0, (m.b[k] - prevSniffer.b[k]) / dt) : 0;
+        }
+        if (prevSniffer && prevSniffer.sf && m.sf && m.sf.seq > prevSniffer.sf.seq) {
+          const dt = (m.sf.seq - prevSniffer.sf.seq) * 0.25;
+          for (const k of SF_RATES) sfRates[k] = Math.max(0, (m.sf[k] - prevSniffer.sf[k]) / dt);
         }
         prevSniffer = m; S.sniffer = m; dirty.status = true;
         break;

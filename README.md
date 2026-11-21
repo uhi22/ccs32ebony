@@ -4,10 +4,19 @@ A passive CCS charging-session viewer for the **WT32-ETH01** (ESP32 + LAN8720 Et
 It watches the communication between an electric vehicle (PEV) and a DC charger (EVSE) and shows
 the decoded data on a **tablet or phone**, over a Wi-Fi access point that the board creates itself.
 
-> **Status: working on the bench, not yet field-tested.** With bench sessions (pyPLC as car and
-> charger), the box receives SLAC, SDP and the V2G exchange in both directions, decodes every
-> DIN 70121 message and shows the session live on an iPad. A test with a real car and charger is
-> still to come. Open items: [docs/backlog.md](docs/backlog.md).
+> **Status: field-tested.** On 2026-11-21 the box followed several complete DC charging sessions of
+> a Hyundai Ioniq on an alpitronics charger: SLAC, SDP and the V2G exchange in both directions, up
+> to CurrentDemand (about 22 kW in the session shown below). Before that it was tested on the
+> bench, with a Foccci as car and pyPLC as charger. Open items: [docs/backlog.md](docs/backlog.md).
+
+![ccs32ebony on the Ioniq charge port, RF wires just hanging near the charging cable](docs/2026-11-21_foto_ebony_on_the_ioniq_chargeport_flying_wires.jpg)
+
+The modem is sensitive enough that no clamp or coupler is needed: its RF wires just hang next to
+the charging cable at the charge port, and it still picks up the whole session.
+
+| Live view | Session timing | Charge parameters | SLAC attenuation |
+|---|---|---|---|
+| <img src="docs/2026-11-21_screenshot_live_view.jpg" width="200" alt="Live view: 396 V, 56.6 A, 22.4 kW"> | <img src="docs/2026-11-21_screenshot_session_timing.jpg" width="200" alt="Session timeline from SLAC to CurrentDemand"> | <img src="docs/2026-11-21_screenshot_chargeparameters.jpg" width="200" alt="ChargeParameterDiscovery, car request and charger response"> | <img src="docs/2026-11-21_screenshot_attenuation.jpg" width="200" alt="SLAC attenuation per carrier group"> |
 
 ## How it works
 
@@ -62,7 +71,8 @@ ccs32dave.
   attenuation profile, and on request the firmware versions of all modems in the network.
 - **Sniffer:** the sniffer firmware's own status (v158 or newer): which TEI it learned for the car
   and when, the traffic it caught per direction, modem uptime and restarts, and management
-  messages it dropped.
+  messages it dropped. With an unjoined sniffer build (v214..v299): the modem's status frame, which the box
+  switches on by itself.
 - **Log:** every SLAC, SDP and V2G message, filterable, with export to JSON and CSV.
 
 ## Quick start
