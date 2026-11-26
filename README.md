@@ -113,3 +113,10 @@ ccs32dave.
 **GPL-3.0**, see [LICENSE](LICENSE). The project reuses code from ccs32dave and pyPLC (both
 GPL-3.0). The OpenV2G EXI codec in `src/exi/` keeps its own licence (LGPL-3.0, see its file
 headers).
+
+## Support
+
+ccs32ebony is a spare-time project. If it's useful for you, you can support further development:
+
+- Patreon: https://www.patreon.com/uhi22
+- PayPal: https://www.paypal.me/uhi22
